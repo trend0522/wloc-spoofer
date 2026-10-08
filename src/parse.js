@@ -19,23 +19,70 @@ export function safeDecode(s) {
 export function extractFromString(s) {
   if (!s) return null;
   const str = String(s);
+  const ok = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
   let m;
   m = str.match(/(?:coordinate|ll|sll)=(-?\d{1,3}\.\d+)(?:,|%2C)(-?\d{1,3}\.\d+)/i);
-  if (m) {
+  if (m && ok(+m[1], +m[2])) {
     const nm = str.match(/[?&]name=([^&]+)/i);
     return { lat: +m[1], lon: +m[2], name: nm ? safeDecode(nm[1]) : "", src: "apple" };
   }
   m = str.match(
     /[?&]p=[^,&%]*(?:,|%2C)(-?\d{1,3}\.\d+)(?:,|%2C)(-?\d{1,3}\.\d+)(?:(?:,|%2C)((?:(?!,|%2C|&).)+))?/i
   );
-  if (m) return { lat: +m[1], lon: +m[2], name: m[3] ? safeDecode(m[3]) : "", src: "amap" };
+  if (m && ok(+m[1], +m[2])) return { lat: +m[1], lon: +m[2], name: m[3] ? safeDecode(m[3]) : "", src: "amap" };
   m = str.match(
     /[?&]q=(-?\d{1,3}\.\d+)(?:,|%2C)(-?\d{1,3}\.\d+)(?:(?:,|%2C)((?:(?!,|%2C|&).)+))?/i
   );
-  if (m) return { lat: +m[1], lon: +m[2], name: m[3] ? safeDecode(m[3]) : "", src: "amap" };
+  if (m && ok(+m[1], +m[2])) return { lat: +m[1], lon: +m[2], name: m[3] ? safeDecode(m[3]) : "", src: "amap" };
   m = str.match(/(-?\d{1,3}\.\d{4,})\s*(?:,|%2C)\s*(-?\d{1,3}\.\d{4,})/);
-  if (m) return { lat: +m[1], lon: +m[2], name: "", src: "text" };
+  if (m && ok(+m[1], +m[2])) return { lat: +m[1], lon: +m[2], name: "", src: "text" };
   return null;
+}
+
+// /api/parse fetches caller-supplied URLs. Workers cannot reach private networks,
+// so the real risk is resource exhaustion: an endless or huge response. These
+// guards bound time (AbortSignal) and bytes (capped read), mirroring the hardened
+// cyberhandyman-ioslocspo worker.
+const FETCH_TIMEOUT_MS = 8000;
+const MAX_BODY_BYTES = 512 * 1024;
+
+function isFetchable(u) {
+  let url;
+  try {
+    url = new URL(u);
+  } catch (e) {
+    return false;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  const h = url.hostname.toLowerCase();
+  if (h === "localhost" || h.endsWith(".local") || h.endsWith(".internal")) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.startsWith("[")) return false; // IP literals
+  return true;
+}
+
+async function readCapped(resp) {
+  if (!resp.body || typeof resp.body.getReader !== "function") {
+    return (await resp.text()).slice(0, MAX_BODY_BYTES);
+  }
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (total < MAX_BODY_BYTES) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    total += value.length;
+  }
+  try {
+    await reader.cancel();
+  } catch (e) {}
+  const buf = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    buf.set(c, off);
+    off += c.length;
+  }
+  return new TextDecoder("utf-8", { fatal: false }).decode(buf);
 }
 
 // Accepts raw text (which may contain a place name plus a link), extracts the URL, follows redirects to expand short links when needed, and extracts the coordinates.
@@ -52,10 +99,12 @@ export async function parseCoords(raw) {
   if (urlMatch) {
     let cur = target;
     for (let i = 0; i < 5; i++) {
+      if (!isFetchable(cur)) break;
       let resp;
       try {
         resp = await fetch(cur, {
           redirect: "manual",
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           headers: {
             "user-agent":
               "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/24A5370h Safari/604.1",
@@ -78,7 +127,7 @@ export async function parseCoords(raw) {
       hit = extractFromString(resp.url);
       if (hit) return hit;
       try {
-        const body = await resp.text();
+        const body = await readCapped(resp);
         hit = extractFromString(body);
         if (hit) return hit;
       } catch (e) {}

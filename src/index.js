@@ -34,7 +34,7 @@ app.get("/api/parse", async (c) => {
 
 app.onError((e, c) => {
   console.error(`${e}`);
-  return c.text(`${e}`, 500);
+  return c.text("parse error", 500);
 });
 
 export default app;
