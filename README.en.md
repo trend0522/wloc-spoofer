@@ -9,6 +9,8 @@
 
 # Apple WLOC Location Spoofer
 
+> Derived from [ios151/wloc](https://github.com/ios151/wloc), licensed AGPL-3.0 (see `LICENSE`). Derivatives must be open-sourced under the same terms.
+
 Modify the coordinates returned by Apple's network-based location service (WiFi/cell) to spoof iOS network location. Open the online picker page, choose a spot, and it takes effect — no need to type latitude/longitude by hand.
 
 ---

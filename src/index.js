@@ -1,6 +1,6 @@
 import { Hono } from "hono/tiny";
 import { getPageHtml } from "./page.js";
-import { parseCoords, gcj02ToWgs84, round6 } from "./parse.js";
+import { parseCoords, gcj02ToWgs84, toWgs84, round6, inRange } from "./parse.js";
 
 const app = new Hono();
 
@@ -8,9 +8,9 @@ app.get("/", (c) => {
   return c.html(getPageHtml());
 });
 
-// Map link parsing: called by the iOS Shortcut.
-// GET /api/parse?u=<link>&format=json&cs=<gcj|none>
-//   Returns {lat, lon, name}; Amap / Apple Maps (both GCJ-02 in mainland China) are auto-converted to WGS84; coordinates outside China are skipped automatically (out_of_china). cs=none forces no conversion.
+// Map link parsing: called by the iOS Shortcut and the picker page.
+// GET /api/parse?u=<link>&format=json&cs=<gcj|bd|none>
+//   Returns {lat, lon, name}. Conversion is dispatched by the detected source: Amap / Apple Maps (GCJ-02 in mainland China) -> WGS84; Baidu (BD09) -> GCJ-02 -> WGS84; HK/Macau/Taiwan and out-of-China points pass through unchanged (they are already WGS84). cs= forces a given system; cs=none forces no conversion.
 //   Without format=json it returns a plain-text "lat=..&lon=.." fragment.
 app.get("/api/parse", async (c) => {
   const raw = c.req.query("u") || "";
@@ -18,8 +18,14 @@ app.get("/api/parse", async (c) => {
   const fmt = (c.req.query("format") || "").toLowerCase();
   try {
     let { lat, lon, name, src } = await parseCoords(raw);
-    const needConv = cs === "gcj" || (cs !== "none" && (src === "amap" || src === "apple"));
-    if (needConv) ({ lat, lon } = gcj02ToWgs84(lat, lon));
+    // Default: convert by detected source. cs=none forces no conversion, cs=gcj/bd forces one.
+    if (cs === "gcj") ({ lat, lon } = gcj02ToWgs84(lat, lon));
+    else if (cs === "bd") ({ lat, lon } = toWgs84(lat, lon, "baidu"));
+    else if (cs !== "none") ({ lat, lon } = toWgs84(lat, lon, src));
+    // Validate once more on the way out: cs= is caller-supplied, and forcing the
+    // wrong system can push the value out of range. Better to error than to hand
+    // back a number a Shortcut could write into the device as a coordinate.
+    if (!inRange(lat, lon)) throw new Error("解析出的坐标超出合法范围");
     lat = round6(lat);
     lon = round6(lon);
     name = name || "";
@@ -32,9 +38,72 @@ app.get("/api/parse", async (c) => {
   }
 });
 
+// Global place search for the picker page's search box.
+// GET /api/search?q=<keyword>
+//   Proxies OpenStreetMap Nominatim and returns {results:[{name, detail, lat, lon}]} (all WGS-84).
+//   Served through the Cloudflare Cache API with a 7-day edge TTL: place names rarely change, so
+//   repeat queries never hit origin — fast, and it avoids browsers calling Nominatim directly
+//   (rate limits + usage policy).
+app.get("/api/search", async (c) => {
+  c.header("Access-Control-Allow-Origin", "*");
+  const q = (c.req.query("q") || "").trim();
+  if (q.length < 2) return c.json({ results: [] });
+
+  const cache = caches.default;
+  const cacheKey = new Request(
+    `https://wloc.search.cache/?q=${encodeURIComponent(q.toLowerCase())}`
+  );
+  const cached = await cache.match(cacheKey);
+  if (cached) return c.json(await cached.json());
+
+  const api =
+    `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&q=${encodeURIComponent(q)}`;
+  let raw;
+  try {
+    const resp = await fetch(api, {
+      headers: {
+        // Nominatim's usage policy requires a caller-identifying UA; requests without one get refused.
+        "User-Agent": "wloc-ios-place-search/1.0",
+        "Accept-Language": "zh-Hant,zh-TW,zh,en",
+      },
+    });
+    if (!resp.ok) return c.json({ results: [] });
+    raw = await resp.json();
+  } catch {
+    return c.json({ results: [] });
+  }
+
+  const results = (Array.isArray(raw) ? raw : [])
+    .map((r) => ({
+      name: r.name || String(r.display_name || "").split(",")[0].trim(),
+      detail: r.display_name || "",
+      lat: Number(r.lat),
+      lon: Number(r.lon),
+    }))
+    .filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lon));
+
+  const payload = { results };
+  // Store a TTL'd copy; waitUntil does not block this response.
+  c.executionCtx.waitUntil(
+    cache.put(
+      cacheKey,
+      new Response(JSON.stringify(payload), {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "max-age=604800",
+        },
+      })
+    )
+  );
+  return c.json(payload);
+});
+
+// The fallback 500 must also carry CORS — otherwise the Shortcut sees a cross-origin
+// error instead of the real cause.
 app.onError((e, c) => {
   console.error(`${e}`);
-  return c.text(`${e}`, 500);
+  c.header("Access-Control-Allow-Origin", "*");
+  return c.text(`${e && e.message ? e.message : e}`, 500);
 });
 
 export default app;
