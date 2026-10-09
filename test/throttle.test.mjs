@@ -144,8 +144,9 @@ test('F1c: 連續灌 6001 個新 IP，任何時刻 size ≤ 5000 且最新項必
   let peak = 0, wiped = false;
   for (let i = 0; i < 6001; i++) {
     rateLimited('ip' + i, 20, W, Date.now() + i); // 每個 start 微递增，模擬輪換 IP
+    const before = peak;
     peak = Math.max(peak, rlWindows.size);
-    if (rlWindows.size < 10) wiped = true; // 全量清空會瞬間跌到個位數
+    if (before >= 5000 && rlWindows.size < 10) wiped = true; // 已滿載後瞬間崩到個位數＝reset-all；爬坡期 0→1 不算
     assert.ok(rlWindows.has('ip' + i), '剛加入的 IP 必須存在');
   }
   assert.ok(peak <= 5000, '新增後從不超過 5000，實測 peak=' + peak);
