@@ -156,6 +156,13 @@ with sync_playwright() as pw:
     cls2 = pd.locator("#diagList .diag-row").nth(1).get_attribute("class")
     # headless 環境無小火箭 → save 通道不通 → 應灰燈待驗證, 不得假綠
     check("通道未命中時保持灰燈(不假綠)", "diag-wait" in cls2, cls2)
+    # 無效回應(非模組契約)不得判為通道成功: 以 route 攔截回垃圾 JSON 模擬（先註冊再導航）
+    pg = ctx.new_page()
+    pg.route("**/wloc-settings/save**", lambda r: r.fulfill(status=200, content_type="application/json", body='{"unexpected":1}'))
+    pg.goto(BASE, wait_until="domcontentloaded"); pg.wait_for_timeout(1500)
+    cls3 = pg.locator("#diagList .diag-row").nth(1).get_attribute("class")
+    check("垃圾 JSON 不誤判通道命中", "diag-wait" in cls3, cls3)
+    pg.close()
     pd.close()
 
     # ── E. 高德圖層說明(hover title) ──

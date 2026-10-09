@@ -5,7 +5,7 @@
     "deploy": "npx wrangler deploy --minify",
     "pages:dev": "npx wrangler pages dev --port 8787",
     "pages:deploy": "npx wrangler pages deploy",
-    "test": "node --test ./test/parse.test.mjs ./test/coord.test.mjs ./test/wloc-stash-output.test.js"
+    "test": "node --test ./test/parse.test.mjs ./test/coord.test.mjs ./test/search-route.test.mjs ./test/wloc-stash-output.test.js"
   },
   "dependencies": {
     "hono": "^4.10.6"

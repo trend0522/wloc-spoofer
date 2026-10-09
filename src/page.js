@@ -727,16 +727,21 @@ function queryActive(firstLoad) {
   fetch(SAVE_API + '?action=query', { method:'GET', mode:'cors', cache:'no-store', signal: AbortSignal.timeout(8000) })
     .then(r => r.json())
     .then(d => {
-      if (d.success && d.longitude != null && d.latitude != null) {
+      if (d.success === true && d.longitude != null && d.latitude != null) {
         activeLon = parseFloat(d.longitude);
         activeLat = parseFloat(d.latitude);
         activeAcc = d.accuracy || null;
         activeStatus = 'ok'; firstFail = false;
         const rr = d.randomRadius || 0;
         document.getElementById('radiusInput').value = rr;
-      } else {
+      } else if (typeof d.success === 'boolean') {
+        // 契約欄位存在＝這是模組腳本的回應（success:false＝通道通但沒存座標）
         activeLon = null; activeLat = null; activeAcc = null;
         activeStatus = 'none'; firstFail = false;
+      } else {
+        // JSON 但無 success 契約＝非模組回應（CDN/代理錯誤頁等），不得誤判為通道正常
+        showQueryFailure(firstLoad);
+        return;
       }
       renderActive();
       renderFavs();
