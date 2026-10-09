@@ -1,6 +1,10 @@
 {
   "name": "wloc-spoofer",
   "main": "src/index.js",
-  "compatibility_date": "2024-01-01",
-  "compatibility_flags": ["nodejs_compat"]
+  // 執行期語意快照。這個 Worker 只用 fetch/URL/TextDecoder 等標準 Web API，
+  // 不需要 nodejs_compat —— 上游實測拿掉後產物位元組完全一致，且省掉一份啟動開銷。
+  "compatibility_date": "2026-08-05",
+  // 關閉持久化日誌蒐集，與 README 中「/api/parse 不記日誌」的說法對齊。
+  // 除錯仍可用 `wrangler tail`，那是即時串流，不落盤。
+  "observability": { "enabled": false }
 }

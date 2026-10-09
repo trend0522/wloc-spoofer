@@ -25,7 +25,7 @@ app.get("/api/parse", async (c) => {
     // Validate once more on the way out: cs= is caller-supplied, and forcing the
     // wrong system can push the value out of range. Better to error than to hand
     // back a number a Shortcut could write into the device as a coordinate.
-    if (!inRange(lat, lon)) throw new Error("解析出的坐标超出合法范围");
+    if (!inRange(lat, lon)) throw new Error("解析出的座標超出合法範圍");
     lat = round6(lat);
     lon = round6(lon);
     name = name || "";

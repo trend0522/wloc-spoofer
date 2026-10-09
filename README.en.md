@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">简体中文</a> ·
+  <a href="README.md">繁體中文</a> ·
   <a href="README.en.md"><b>English</b></a>
 </p>
 
@@ -18,19 +18,19 @@ Modify the coordinates returned by Apple's network-based location service (WiFi/
 ## Subscription links
 
 **Surge:**
-https://raw.githubusercontent.com/cyberhandyman/wloc-spoofer-en/refs/heads/main/modules/wloc.sgmodule
+https://raw.githubusercontent.com/trend0522/wloc-spoofer/refs/heads/main/modules/wloc.sgmodule
 
 **Quantumult X:**
-https://raw.githubusercontent.com/cyberhandyman/wloc-spoofer-en/refs/heads/main/modules/wloc.conf
+https://raw.githubusercontent.com/trend0522/wloc-spoofer/refs/heads/main/modules/wloc.conf
 
 **Loon:**
-https://raw.githubusercontent.com/cyberhandyman/wloc-spoofer-en/refs/heads/main/modules/wloc.lpx
+https://raw.githubusercontent.com/trend0522/wloc-spoofer/refs/heads/main/modules/wloc.lpx
 
 **Stash:**
-https://raw.githubusercontent.com/cyberhandyman/wloc-spoofer-en/refs/heads/main/modules/wloc.stoverride
+https://raw.githubusercontent.com/trend0522/wloc-spoofer/refs/heads/main/modules/wloc.stoverride
 
 **Shadowrocket:**
-https://raw.githubusercontent.com/cyberhandyman/wloc-spoofer-en/refs/heads/main/modules/wloc.module
+https://raw.githubusercontent.com/trend0522/wloc-spoofer/refs/heads/main/modules/wloc.module
 
 > Egern can use the Surge module directly
 > For Stash, subscribe to the `.stoverride` above directly — no need to convert it with Script Hub
@@ -59,7 +59,7 @@ Supports Apple Maps and Amap (including short links, with automatic redirect fol
 
 ### About map link parsing (worker)
 
-To make Apple Maps and Amap go through the same flow, links are sent to `wloc-spoofer.cyberhandyman.workers.dev/api/parse` for parsing:
+To make Apple Maps and Amap go through the same flow, links are sent to `wloc-spoofer.trend0522.workers.dev/api/parse` for parsing:
 
 - **Amap**: shares produce a short link, and the real coordinates are hidden only in the `Location` header of the 302 redirect — and they are GCJ-02 offset coordinates. A Shortcut can neither read the redirect header nor easily do the coordinate conversion, so the worker follows the redirect → extracts the coordinates → converts GCJ-02→WGS84 → returns latitude/longitude.
 - **Apple Maps**: the link carries `coordinate=lat,lon` directly, but **in mainland China these are also GCJ-02 offset coordinates**, so like Amap the worker performs the GCJ-02→WGS84 conversion before returning them; coordinates outside China skip the conversion automatically (`out_of_china` check) and are returned as-is. Beyond unifying the coordinate system, using the same endpoint also makes it easier to handle short links, links embedded in text, name decoding, and so on uniformly.
@@ -68,8 +68,8 @@ To make Apple Maps and Amap go through the same flow, links are sent to `wloc-sp
 
 **Deploy your own if you're concerned:** the worker source is fully open source and you can deploy your own copy to replace the address above:
 
-- Parsing logic: [`worker/src/parse.js`](worker/src/parse.js), routing: [`worker/src/index.js`](worker/src/index.js)
-- After deploying, replace `wloc-spoofer.cyberhandyman.workers.dev` in the Shortcut with your own worker domain.
+- Parsing logic: Routing: [`src/index.js`](src/index.js), parsing logic: [`src/parse.js`](src/parse.js)
+- After deploying, replace `wloc-spoofer.trend0522.workers.dev` in the Shortcut with your own worker domain.
 
 ---
 
@@ -182,12 +182,12 @@ The two are stored independently. The favorites list is browser-side helper data
 
 The public picker page has a request limit, so deploying your own instance is recommended:
 
-- **Workers**: `https://wloc-spoofer.cyberhandyman.workers.dev/`
+- **Workers**: `https://wloc-spoofer.trend0522.workers.dev/`
 - **Pages**: `https://<your-project-name>.pages.dev/`
 
 **One-click deploy (Workers):**
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cyberhandyman/wloc-spoofer-en/tree/main/worker)
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/trend0522/wloc-spoofer)
 
 > One-click deploy only supports Workers mode; click the button and follow the prompts to authorize and finish the deployment.
 
@@ -195,8 +195,8 @@ The public picker page has a request limit, so deploying your own instance is re
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/cyberhandyman/wloc-spoofer-en.git
-cd wloc-spoofer-en/worker
+git clone https://github.com/trend0522/wloc-spoofer.git
+cd wloc-spoofer
 
 # 2. Install dependencies
 npm install
@@ -218,8 +218,8 @@ Once deployed you'll get your own Worker address (e.g. `https://wloc-spoofer.<yo
 Pages deployment does not support the one-click button and must be done manually:
 
 ```bash
-git clone https://github.com/cyberhandyman/wloc-spoofer-en.git
-cd wloc-spoofer-en/worker
+git clone https://github.com/trend0522/wloc-spoofer.git
+cd wloc-spoofer
 npm install
 npx wrangler pages deploy dist --project-name <your-project-name>
 ```

@@ -1,0 +1,14 @@
+#!name=Apple WLOC 定位修改
+#!desc=修改 Apple 網路定位回傳座標 | 快捷指令(推薦): 設定地理位置 https://www.icloud.com/shortcuts/a82717d8fdad4e6280866fcf911173f7 清除恢復位置 https://www.icloud.com/shortcuts/f42632d406504f24a2cd163af4fe012f | 選點頁面: https://wloc-spoofer.trend0522.workers.dev/
+#!author=ios151 Rewrite (fork by trend0522)
+#!homepage=https://github.com/trend0522/wloc-spoofer
+#!category=Tools
+#!arguments=經度:113.94114, 緯度:22.544577, 精度:25, 擾動半徑:0, 日誌等級:info
+#!arguments-desc=經度/緯度: 預設座標（線上選點儲存後優先）\n精度: GPS精度（公尺）\n擾動半徑: 每次回應在目標點周圍隨機偏移的最大距離（公尺），0為關閉\n日誌等級: off/error/warn/info/debug/all\n\n使用方法: 開啟選點頁面 -> 選位置 -> 儲存到裝置
+
+[Script]
+Apple WLOC = type=http-response, pattern="^https?:\/\/(?:gs-loc(?:-cn)?\.apple\.com|gsp-ssl\.ls\.apple\.com|bluedot\.is\.autonavi\.com(?:\.gds\.alibabadns\.com)?)\/clls\/wloc", requires-body=1, binary-body-mode=1, max-size=0, timeout=30, script-path=https://raw.githubusercontent.com/trend0522/wloc-spoofer/refs/heads/main/dist/wloc.js, argument=longitude={{{經度}}}&latitude={{{緯度}}}&accuracy={{{精度}}}&randomRadius={{{擾動半徑}}}&logLevel={{{日誌等級}}}
+WLOC Settings = type=http-request, pattern="^https?:\/\/gs-loc(-cn)?\.apple\.com\/wloc-settings\/save", requires-body=0, max-size=0, timeout=10, script-path=https://raw.githubusercontent.com/trend0522/wloc-spoofer/refs/heads/main/dist/wloc-settings.js
+
+[MITM]
+hostname = %APPEND% gs-loc.apple.com, gs-loc-cn.apple.com, gsp-ssl.ls.apple.com, bluedot.is.autonavi.com, bluedot.is.autonavi.com.gds.alibabadns.com
