@@ -124,6 +124,18 @@ with sync_playwright() as pw:
     check("特殊字元安全處理", ps.evaluate("document.querySelectorAll('#searchResults script').length") == 0)
     ps.close()
 
+    import json, urllib.request, urllib.parse
+    API = BASE.rstrip('/')  # BASE 帶尾斜線，直接串接會變成 //api/... 本地路由 404
+    def api_get(qs):
+        return json.loads(urllib.request.urlopen(API + "/api/search?" + qs, timeout=10).read())
+    j = api_get("q=" + urllib.parse.quote("zzz不存在的qqq"))
+    check("本地 Worker 空結果契約", j == {"results": []}, str(j)[:60])
+    j2 = api_get("q=" + urllib.parse.quote("车站"))
+    check("本地 Worker 桩多筆(經真實路由代碼)", len(j2.get("results", [])) == 2
+          and j2["results"][0]["lat"] == 25.0478, str(j2)[:80])
+    j3 = api_get("q=_")
+    check("診斷探測端點離線可用(不出站空清單)", j3 == {"results": []}, str(j3)[:50])
+
     # ── D. 本地座標範圍守門 + 貼上解析回歸 ──
     pd_ = new_page(ctx)
     pd_.locator("#urlInput").fill("ll=95.5,121.5")
@@ -151,7 +163,7 @@ with sync_playwright() as pw:
     rows = pd.locator("#diagList .diag-row").count()
     check("診斷面板 3 列存在", rows == 3, "rows=%d" % rows)
     cls = pd.locator("#diagList .diag-row").first.get_attribute("class")
-    # /api 經伺服器代理正式站 → q="_" 必回 {results:[]} → 網站可達項應綠
+    # /api 由本地 Hono app 直接服務（stub 不出站）→ q="_" 必回 {results:[]} → 網站可達項應綠
     check("網站可達項有證據轉綠", "diag-ok" in cls, cls)
     cls2 = pd.locator("#diagList .diag-row").nth(1).get_attribute("class")
     # headless 環境無小火箭 → save 通道不通 → 應灰燈待驗證, 不得假綠

@@ -19,7 +19,15 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: python3 -m pip install playwright && python3 -m playwright install --with-deps chromium
-      - name: start acceptance server (serves local source, proxies /api read-only to live site)
+      - name: start acceptance server (local Hono app + stub upstream, fully offline)
         run: nohup node scripts/serve-acceptance.mjs 8899 &
       - run: curl -fsS --retry 10 --retry-delay 1 http://127.0.0.1:8899/ -o /dev/null
       - run: python3 scripts/acceptance_browser.py
+  live-probe:
+    # 正式站唯讀探測：continue-on-error → 紅綠與主流水線脫鉤（可選測試，非 CI 必要條件）
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: curl -fsS "https://wloc-spoofer.trend0522.workers.dev/api/search?q=_" | grep -o '"results"'
