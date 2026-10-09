@@ -9,5 +9,6 @@
   },
   "dependencies": {
     "hono": "^4.10.6"
-  },"name": "wloc-spoofer"
+  },
+  "name": "wloc-spoofer"
 }
