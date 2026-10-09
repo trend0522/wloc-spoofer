@@ -7,11 +7,24 @@ const app = new Hono();
 /* ---- P0 abuse throttle: per-IP fixed window, isolate-local ----
    ponytail: a Map in module scope, NOT KV — KV needs a namespace + wrangler binding (deploy-config change).
    Ceiling: each Worker isolate counts its own traffic; a cold start resets it. Good enough to stop
-   dictionary-flooding Nominatim / parse-proxy abuse from one client; not a distributed quota.
-   Upgrade path when real quota is needed: same window logic against env.WLOC_RL KV binding. */
+   dictionary-flooding Nominatim / parse-proxy abuse from one client; not a distributed quota,
+   NOT an upstream-policy (1 req/s Nominatim) guarantee.
+   Upgrade path for real compliance: Durable Object token bucket (strongly consistent across isolates). */
 const rlWindows = new Map();
+const RL_MAX_KEYS = 5000;
+function rlEvict(now, windowMs) {
+  if (rlWindows.size <= RL_MAX_KEYS) return;
+  // Pass 1: drop expired windows — free space without touching anyone's live quota.
+  for (const [k, t] of rlWindows) if (now - t.start >= windowMs) rlWindows.delete(k);
+  if (rlWindows.size <= RL_MAX_KEYS) return;
+  // Pass 2 (full-load policy, deliberate): evict the oldest quarter by window start.
+  // Bounded, defined damage — unlike rlWindows.clear(), an IP-rotating flood cannot
+  // reset every user's quota in one shot; survivors keep counting.
+  const cut = rlWindows.size >> 2;
+  for (const [k] of [...rlWindows.entries()].sort((a, b) => a[1].start - b[1].start).slice(0, cut)) rlWindows.delete(k);
+}
 function rateLimited(key, max, windowMs, now) {
-  if (rlWindows.size > 5000) rlWindows.clear(); // crude bound: 5k live IPs in one window is already an incident
+  rlEvict(now, windowMs);
   const t = rlWindows.get(key);
   if (!t || now - t.start >= windowMs) { rlWindows.set(key, { start: now, n: 1 }); return false; }
   t.n++;
@@ -19,6 +32,7 @@ function rateLimited(key, max, windowMs, now) {
 }
 const rlNow = () => Date.now();
 const RL_SEARCH_MAX = 20, RL_PARSE_MAX = 20, RL_WINDOW_MS = 60000; // per minute per IP
+export { rateLimited, rlWindows }; // for throttle unit tests only; Worker entry stays `export default app`
 
 app.get("/", (c) => {
   return c.html(getPageHtml());

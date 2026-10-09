@@ -80,3 +80,60 @@ test('parse: 洪水第 21 次回 429 + {error}（既有錯誤形態）', async (
     assert.strictEqual(r.headers.get('access-control-allow-origin'), '*');
   });
 });
+
+/* ---- 第二輪審核修正：F1 容量逐出 + F3 快取命中不計數 ---- */
+import { rateLimited, rlWindows } from '../src/index.js';
+
+test('F1a: 滿載先逐出已過期視窗，倖存使用者的已累計次數不被重置', () => {
+  rlWindows.clear();
+  const W = 60000, t0 = Date.now();
+  for (let i = 0; i < 5001; i++) rlWindows.set('e' + i, { start: t0 - W - 1000, n: 20 }); // 全過期
+  rlWindows.set('live', { start: t0, n: 19 }); // 未過期、已燒 19 次
+  rateLimited('fresh', 20, W, t0);
+  assert.ok(rlWindows.has('live'), '未過期項不得被逐出');
+  assert.strictEqual(rlWindows.get('live').n, 19, '計數必須存活（非靜默重置）');
+  assert.ok(!rlWindows.has('e0'), '過期項應已被逐出');
+  // live 使用者下次請求繼續從 19 往下算：第 20 次放行、第 21 次受限
+  assert.strictEqual(rateLimited('live', 20, W, t0), false);
+  assert.strictEqual(rateLimited('live', 20, W, t0), true);
+  rlWindows.clear();
+});
+
+test('F1b: 無足量過期項時的滿載行為＝逐出最舊 1/4（依 start），非全清', () => {
+  rlWindows.clear();
+  const W = 60000, t0 = Date.now();
+  for (let i = 0; i < 5001; i++) rlWindows.set('k' + i, { start: t0 + i, n: 15 }); // 全在窗內，start 遞增
+  rlWindows.set('newest', { start: t0 + 99999, n: 19 });
+  rateLimited('probe', 20, W, t0);
+  assert.ok(rlWindows.has('newest') && rlWindows.get('newest').n === 19, '最新窗必須存活');
+  assert.ok(!rlWindows.has('k0'), '最舊項應被逐出');
+  assert.ok(!rlWindows.has('k1249'), '最舊 1/4 邊界（cut=1250）內應被逐出');
+  assert.ok(rlWindows.has('k1300'), '1/4 邊界外應存活');
+  assert.ok(rlWindows.has('k4999'), '較新項應存活 — 證明非全量清空');
+  assert.ok(rlWindows.size > 3750 && rlWindows.size <= 5000, '存活量大約 3/4');
+  rlWindows.clear();
+});
+
+test('F3: 快取命中不消耗額度——同詞 25 次全部正常回應、零出站、之後新詞仍放行', async () => {
+  const hitBody = { results: [{ lat: 25.0, lon: 121.5, name: 'cachehit', address: 'x' }] };
+  globalThis.caches = { default: {
+    match: async (req) => new URL(req.url).searchParams.get('q') === 'popular'
+      ? { json: async () => hitBody } : undefined,
+    put: async () => {}
+  } };
+  let n = 0;
+  globalThis.fetch = async () => { n++; return { ok: true, status: 200, json: async () => [] }; };
+  await withApp(async (app) => {
+    const ip = '5.5.' + Math.floor(Math.random() * 250) + '.31';
+    for (let i = 0; i < 25; i++) {
+      const d = await (await req(app, '/api/search?q=popular', ip)).json();
+      assert.ok(!d.limited, '第 ' + i + ' 次快取命中不應受限');
+      assert.deepStrictEqual(d.results, hitBody.results, '命中應原樣回傳');
+    }
+    assert.strictEqual(n, 0, '快取命中期間零上游請求');
+    const d2 = await (await req(app, '/api/search?q=freshword', ip)).json();
+    assert.ok(!d2.limited, '25 次命中不得吃掉該 IP 的 20 次出站額度');
+    assert.strictEqual(n, 1);
+  });
+  globalThis.fetch = originalFetch;
+});
