@@ -13,10 +13,10 @@ const app = new Hono();
 const rlWindows = new Map();
 const RL_MAX_KEYS = 5000;
 function rlEvict(now, windowMs) {
-  if (rlWindows.size <= RL_MAX_KEYS) return;
+  if (rlWindows.size < RL_MAX_KEYS) return;
   // Pass 1: drop expired windows — free space without touching anyone's live quota.
   for (const [k, t] of rlWindows) if (now - t.start >= windowMs) rlWindows.delete(k);
-  if (rlWindows.size <= RL_MAX_KEYS) return;
+  if (rlWindows.size < RL_MAX_KEYS) return;
   // Pass 2 (full-load policy, deliberate): evict the oldest quarter by window start.
   // Bounded, defined damage — unlike rlWindows.clear(), an IP-rotating flood cannot
   // reset every user's quota in one shot; survivors keep counting.

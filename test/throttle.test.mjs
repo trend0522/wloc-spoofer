@@ -137,3 +137,19 @@ test('F3: 快取命中不消耗額度——同詞 25 次全部正常回應、零
   });
   globalThis.fetch = originalFetch;
 });
+
+test('F1c: 連續灌 6001 個新 IP，任何時刻 size ≤ 5000 且最新項必在、非全清', () => {
+  rlWindows.clear();
+  const W = 60000;
+  let peak = 0, wiped = false;
+  for (let i = 0; i < 6001; i++) {
+    rateLimited('ip' + i, 20, W, Date.now() + i); // 每個 start 微递增，模擬輪換 IP
+    peak = Math.max(peak, rlWindows.size);
+    if (rlWindows.size < 10) wiped = true; // 全量清空會瞬間跌到個位數
+    assert.ok(rlWindows.has('ip' + i), '剛加入的 IP 必須存在');
+  }
+  assert.ok(peak <= 5000, '新增後從不超過 5000，實測 peak=' + peak);
+  assert.ok(!wiped, '不得出現reset-all 式瞬時崩落');
+  assert.ok(rlWindows.size >= 3000, '存活量大約 3/4（存活者計數不被重置）');
+  rlWindows.clear();
+});
