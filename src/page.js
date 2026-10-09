@@ -1,4 +1,5 @@
 import { GCJ_BROWSER_JS } from "./gcj-browser.js";
+import { COORD_JS } from "./coord.js";
 
 export function getPageHtml() {
   return `<!DOCTYPE html>
@@ -30,7 +31,7 @@ body { font-family:-apple-system,system-ui,"SF Pro","Helvetica Neue",sans-serif;
 .panel { padding:16px; max-width:600px; margin:0 auto; }
 .card { background:var(--card); border-radius:12px; padding:16px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
 .card h3 { font-size:15px; font-weight:600; margin-bottom:10px; color:var(--text); }
-.coords { font-family:"SF Mono",monospace; font-size:14px; color:var(--text); padding:8px 12px; background:var(--bg); border-radius:8px; word-break:break-all; }
+.coords { font-family:"SF Mono",monospace; font-size:14px; color:var(--text); padding:8px 12px; background:var(--bg); border-radius:8px; word-break:break-all; cursor:pointer; }
 .row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
 .btn { flex:1; min-width:100px; padding:12px 16px; border:none; border-radius:10px; font-size:14px; font-weight:500; cursor:pointer; transition:all .15s; }
 .btn-primary { background:var(--blue); color:var(--on-accent); }
@@ -45,6 +46,8 @@ body { font-family:-apple-system,system-ui,"SF Pro","Helvetica Neue",sans-serif;
 .btn-sm { flex:none; min-width:auto; padding:6px 12px; min-height:40px; font-size:13px; border-radius:8px; }
 .input-row { display:flex; gap:8px; margin-top:10px; }
 .input-row input { flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; outline:none; min-width:0; background:var(--card); color:var(--text); }
+#searchResults { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+#searchResults .sres { text-align:left; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); font-size:13px; cursor:pointer; }
 .input-row input::placeholder { color:var(--gray); }
 .input-row input:focus { border-color:var(--blue); }
 .status { font-size:13px; color:var(--gray); margin-top:8px; text-align:center; }
@@ -135,7 +138,7 @@ button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
   <label class="layer-opt"><input type="radio" name="layer" value="standard" onclick="switchLayer('standard')"><span class="l-name" data-i18n="layer_standard">Standard</span><span class="l-desc" data-i18n="layer_standard_d">OpenStreetMap street</span></label>
   <label class="layer-opt"><input type="radio" name="layer" value="dark" onclick="switchLayer('dark')"><span class="l-name" data-i18n="layer_dark">Dark</span><span class="l-desc" data-i18n="layer_dark_d">Dark street style</span></label>
   <h4 data-i18n="layer_group_china">China maps</h4>
-  <label class="layer-opt"><input type="radio" name="layer" value="amap" onclick="switchLayer('amap')"><span class="l-name" data-i18n="layer_amap">Amap</span><span class="l-desc" data-i18n="layer_amap_d">China map data, offset auto-corrected</span></label>
+  <label class="layer-opt" data-i18n-title="amap_title"><input type="radio" name="layer" value="amap" onclick="switchLayer('amap')"><span class="l-name" data-i18n="layer_amap">Amap</span><span class="l-desc" data-i18n="layer_amap_d">China map data, offset auto-corrected</span></label>
 </div>
 </div>
 <div class="panel">
@@ -190,6 +193,7 @@ button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
       <input id="searchInput" data-i18n-ph="search_ph" placeholder="Enter a place name (e.g. The Bund, Shanghai)" aria-label="Place name search" />
       <button class="btn btn-secondary" style="flex:none;min-width:56px" data-i18n="search" onclick="searchPlace()">Search</button>
     </div>
+    <div id="searchResults"></div>
   </div>
   <div class="status" id="status" aria-live="polite">Pick a location, then tap "Save to Device" to write it to your proxy tool</div>
 </div>
@@ -218,6 +222,7 @@ if (typeof L === 'undefined') {
   throw new Error('leaflet unavailable');
 }
 ${GCJ_BROWSER_JS}
+${COORD_JS}
 const SAVE_API = 'https://gs-loc.apple.com/wloc-settings/save';
 const FAV_KEY = 'wloc_favorites';
 const LANG_KEY = 'wloc_lang';
@@ -288,7 +293,9 @@ const I18N = {
     parsing: '解析中...', parse_unreachable: '解析服務不可達',
     parsed: function(n, lo, la){ return '已解析：' + (n || (lo.toFixed(4) + ', ' + la.toFixed(4))); },
     enter_place: '請輸入地名', searching: '搜尋中...',
-    not_found: function(q){ return '未找到：' + q; }, search_failed: '搜尋失敗'
+    not_found: function(q){ return '未找到：' + q; }, search_failed: '搜尋失敗',
+    invalid_coord: '座標超出合法範圍（緯度 ±90、經度 ±180）',
+    copied: '已複製座標', copy_failed: '複製失敗，請手動選取'
   },
   en: {
     title: 'WLOC Location Spoofer',
@@ -337,7 +344,9 @@ const I18N = {
     parsing: 'Parsing...', parse_unreachable: 'Parse service unreachable',
     parsed: function(n, lo, la){ return 'Parsed: ' + (n || (lo.toFixed(4) + ', ' + la.toFixed(4))); },
     enter_place: 'Please enter a place name', searching: 'Searching...',
-    not_found: function(q){ return 'Not found: ' + q; }, search_failed: 'Search failed'
+    not_found: function(q){ return 'Not found: ' + q; }, search_failed: 'Search failed',
+    invalid_coord: 'Coordinates out of range (latitude ±90, longitude ±180)',
+    copied: 'Coordinates copied', copy_failed: 'Copy failed, select manually'
   }
 };
 
@@ -512,6 +521,9 @@ function setPosFromDisplay(dLat, dLon) {
 
 // 参数恒为 WGS84。
 function setPos(newLat, newLon) {
+  // P0-1 單一守門點: 地圖點選/拖 marker/搜尋選點/收藏還原/連結解析/網址預填
+  // 全部經過這裡, 非法座標一律拒絕 —— 不設 selected、不動上一筆有效值。
+  if (!validCoord(newLat, newLon)) { toast(t('invalid_coord'), 3000); return; }
   lat = newLat; lon = newLon; selected = true;
   const d = toDisplay(lat, lon);
   marker.setLatLng([d.lat, d.lon]);
@@ -744,27 +756,24 @@ function locateMe() {
   );
 }
 
-function parseMapUrl(text) {
-  let m;
-  m = text.match(/ll=([0-9.-]+),([0-9.-]+)/);
-  if (m) return { lat: parseFloat(m[1]), lon: parseFloat(m[2]) };
-  m = text.match(/@([0-9.-]+),([0-9.-]+)/);
-  if (m) return { lat: parseFloat(m[1]), lon: parseFloat(m[2]) };
-  m = text.match(/lnglat=([0-9.-]+),([0-9.-]+)/);
-  if (m) return { lat: parseFloat(m[2]), lon: parseFloat(m[1]) };
-  m = text.match(/(?:location|center)=([0-9.-]+),([0-9.-]+)/);
-  if (m) return { lat: parseFloat(m[2]), lon: parseFloat(m[1]) };
-  m = text.match(/(-?[0-9]+\\.[0-9]+)[,\\s]+(-?[0-9]+\\.[0-9]+)/);
-  if (m) {
-    const a = parseFloat(m[1]), b = parseFloat(m[2]);
-    // 纬度绝对值不超过 90, 经度可达 180: 按绝对值判断谁是经度, 否则
-    // -122.009 这类西经会被当成纬度 (-122 < 90 恒成立)。
-    if (Math.abs(a) <= 90 && Math.abs(b) > 90) return { lat: a, lon: b };
-    if (Math.abs(b) <= 90 && Math.abs(a) > 90) return { lat: b, lon: a };
-    return { lat: a, lon: b };
+// 點座標列即複製（WLoc 收藏一鍵複製的網頁對應物）。文案順序與顯示一致：lon, lat。
+function copyCoords() {
+  if (!selected) return;
+  const s = lon.toFixed(6) + ', ' + lat.toFixed(6);
+  const done = ok => toast(ok ? t('copied') : t('copy_failed'), 1500);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(s).then(() => done(true), () => fallback());
+  } else fallback();
+  function fallback() {
+    const ta = document.createElement('textarea');
+    ta.value = s; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch(e) {}
+    document.body.removeChild(ta); done(ok);
   }
-  return null;
 }
+document.getElementById('coords').addEventListener('click', copyCoords);
 
 // 含链接的输入交给服务端 /api/parse: 浏览器读不到跨域 302 的 Location 头, 短链
 // 只能由 worker 展开; 服务端还认 coordinate= 并按来源做 GCJ-02->WGS84 换算。
@@ -794,13 +803,19 @@ async function parseUrl() {
   }
 
   const result = parseMapUrl(input);
-  if (!result) { toast(t('parse_failed'), 3000); return; }
+  // 本地捷徑沒有服務端 inRange 把關：兩個數字都 ≤90 時上述啟發式猜不出順序，
+  // 与其把可能顛倒/超界的數字搬到地圖上，不如直接請用戶走 /api/parse。
+  if (!result || !validCoord(result.lat, result.lon)) {
+    toast(t('parse_failed'), 3000); return;
+  }
   moveTo(result.lat, result.lon, 15);
   toast(t('parsed', '', result.lon, result.lat));
 }
 
 async function searchPlace() {
   const q = document.getElementById('searchInput').value.trim();
+  const box = document.getElementById('searchResults');
+  box.innerHTML = '';
   if (!q) return toast(t('enter_place'));
   toast(t('searching'));
   try {
@@ -808,12 +823,22 @@ async function searchPlace() {
     // cache (7d). Browser-direct Nominatim hits its rate limits and policy.
     const r = await fetch('/api/search?q=' + encodeURIComponent(q), { signal: AbortSignal.timeout(8000) });
     const d = await r.json();
-    const results = (d && d.results) || [];
+    const results = sanitizeResults((d && d.results) || []);
     if (!results.length) { toast(t('not_found', q), 3000); return; }
-    const p = results[0];
-    moveTo(p.lat, p.lon, 15);
-    toast(String(p.name || p.detail || '').slice(0, 40));
+    if (results.length === 1) { chooseResult(results[0]); return; }
+    // 多筆結果不再直接取第一筆: 列出可點選的結果, 選了才移動地圖。
+    results.forEach(p => {
+      const b = document.createElement('button');
+      b.className = 'sres'; b.type = 'button';
+      b.textContent = (p.name ? p.name + ' — ' : '') + (p.detail || (p.lon.toFixed(6) + ', ' + p.lat.toFixed(6)));
+      b.onclick = () => { chooseResult(p); box.innerHTML = ''; };
+      box.appendChild(b);
+    });
   } catch(e) { toast(t('search_failed'), 3000); }
+}
+function chooseResult(p) {
+  moveTo(p.lat, p.lon, 15);
+  toast(String(p.name || p.detail || '').slice(0, 40));
 }
 
 document.addEventListener('paste', e => {
@@ -831,6 +856,13 @@ document.addEventListener('paste', e => {
 document.getElementById('searchInput').addEventListener('keydown', e => { if(e.key==='Enter') searchPlace(); });
 document.getElementById('urlInput').addEventListener('keydown', e => { if(e.key==='Enter') parseUrl(); });
 document.getElementById('favNameInput').addEventListener('keydown', e => { if(e.key==='Enter') confirmFav(); });
+
+// 網址預填: 只在初始載入套用一次(?lat=&lng=)。moveTo 之後使用者任何
+// 點選/拖動/搜尋選點都不會再被它覆蓋(這裡不再讀 location.search)。
+try {
+  const pf = pickPrefill(location.search.slice(1));
+  if (pf) moveTo(pf.lat, pf.lon, 15);
+} catch(e) {}
 
 applyTheme();
 applyI18n();
