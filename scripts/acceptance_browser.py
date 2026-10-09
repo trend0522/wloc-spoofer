@@ -145,6 +145,19 @@ with sync_playwright() as pw:
     check("純座標本地解析(高德圖層下)", abs(pd_.evaluate("lat") - 25.03) < 1e-9 and abs(pd_.evaluate("lon") - 121.56) < 1e-9)
     pd_.close()
 
+    # ── 自我診斷面板（P1-2）: 只应有證據的燈, iPhone 項恒灰 ──
+    pd = new_page(ctx)
+    pd.wait_for_timeout(1200)
+    rows = pd.locator("#diagList .diag-row").count()
+    check("診斷面板 3 列存在", rows == 3, "rows=%d" % rows)
+    cls = pd.locator("#diagList .diag-row").first.get_attribute("class")
+    # /api 經伺服器代理正式站 → q="_" 必回 {results:[]} → 網站可達項應綠
+    check("網站可達項有證據轉綠", "diag-ok" in cls, cls)
+    cls2 = pd.locator("#diagList .diag-row").nth(1).get_attribute("class")
+    # headless 環境無小火箭 → save 通道不通 → 應灰燈待驗證, 不得假綠
+    check("通道未命中時保持灰燈(不假綠)", "diag-wait" in cls2, cls2)
+    pd.close()
+
     # ── E. 高德圖層說明(hover title) ──
     pe2 = new_page(ctx)
     pe2.locator("#layerBtn").click(); pe2.wait_for_timeout(300)

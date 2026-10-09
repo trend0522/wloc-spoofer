@@ -74,6 +74,9 @@ body { font-family:-apple-system,system-ui,"SF Pro","Helvetica Neue",sans-serif;
 .fav-btn:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
 .fav-empty { text-align:center; color:var(--gray); font-size:13px; padding:16px 0; }
 .fav-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.diag-row { font-size:13px; padding:4px 0; display:flex; gap:8px; align-items:center; color:var(--text); }
+.diag-row::before { content:''; width:9px; height:9px; border-radius:50%; flex:none; }
+.diag-ok::before { background:var(--green); } .diag-bad::before { background:var(--red); } .diag-wait::before { background:var(--gray); }
 .fav-header h3 { margin-bottom:0; }
 .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,.4); z-index:10000; display:none; align-items:center; justify-content:center; padding:20px; }
 .modal-overlay.show { display:flex; }
@@ -178,6 +181,14 @@ button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
       <button class="btn btn-sm btn-secondary" data-i18n="refresh" onclick="showError(false);queryActive()">Refresh</button>
       <button class="btn btn-sm btn-danger" data-i18n="clear_data" onclick="clearActive()">Clear Data</button>
     </div>
+  </div>
+  <div class="card">
+    <div class="fav-header">
+      <h3 data-i18n="diag_title">Diagnostics</h3>
+      <button class="btn btn-sm btn-secondary" data-i18n="diag_recheck" onclick="runDiag()">Recheck</button>
+    </div>
+    <div id="diagList" aria-live="polite"></div>
+    <div id="diagWait" style="font-size:12.5px;color:var(--gray);margin-top:8px" data-i18n-html="diag_wait_html"></div>
   </div>
   <div class="card">
     <h3 data-i18n="paste_title">Paste map link</h3>
@@ -295,7 +306,15 @@ const I18N = {
     enter_place: '請輸入地名', searching: '搜尋中...',
     not_found: function(q){ return '未找到：' + q; }, search_failed: '搜尋失敗',
     invalid_coord: '座標超出合法範圍（緯度 ±90、經度 ±180）',
-    copied: '已複製座標', copy_failed: '複製失敗，請手動選取'
+    copied: '已複製座標', copy_failed: '複製失敗，請手動選取',
+    diag_title: '自我診斷', diag_recheck: '重新檢測',
+    diag_web: '網站 API 可達（搜尋端點正常回應）',
+    diag_chan_ok: '裝置通道可達：save 端點被模組腳本接管（真 Apple 伺服器不會回這種 JSON）',
+    diag_chan_wait: '裝置通道未命中——代理未開／MITM 未信任／模組未啟用時，本項保持灰燈',
+    diag_saved: function(s){ return '裝置已儲存定位：' + s; },
+    diag_notsaved: '通道正常但尚未儲存座標——選點後按「儲存到裝置」',
+    diag_saved_wait: '裝置是否已儲存座標：待通道命中後才可判定',
+    diag_wait_html: '<b>以下需在 iPhone 另行驗證，本頁無證據，灰燈≠通過</b><br>1. 裝置定位請求（/clls/wloc）是否命中規則 → 看代理日誌<br>2. 回應是否真的改掉座標 → 看腳本日誌<br>3. 目標 App 是否採用新位置 → 地圖 App 觀察<br>4. 純衛星 GPS 不在本機制範圍（只改網路定位）',
   },
   en: {
     title: 'WLOC Location Spoofer',
@@ -346,7 +365,15 @@ const I18N = {
     enter_place: 'Please enter a place name', searching: 'Searching...',
     not_found: function(q){ return 'Not found: ' + q; }, search_failed: 'Search failed',
     invalid_coord: 'Coordinates out of range (latitude ±90, longitude ±180)',
-    copied: 'Coordinates copied', copy_failed: 'Copy failed, select manually'
+    copied: 'Coordinates copied', copy_failed: 'Copy failed, select manually',
+    diag_title: 'Diagnostics', diag_recheck: 'Recheck',
+    diag_web: 'Site API reachable (search endpoint responded normally)',
+    diag_chan_ok: 'Device channel reachable: the save endpoint is intercepted by the module script (Apple servers never return this JSON)',
+    diag_chan_wait: 'Device channel not hit — stays grey until proxy on / MITM trusted / module enabled',
+    diag_saved: function(s){ return 'Device has a saved location: ' + s; },
+    diag_notsaved: 'Channel OK but nothing saved yet — pick a point and tap "Save to Device"',
+    diag_saved_wait: 'Saved-coordinate status: only judgeable once the channel is hit',
+    diag_wait_html: '<b>Items below require an iPhone; this page has no evidence — grey ≠ pass</b><br>1. Whether /clls/wloc requests hit the rule → proxy logs<br>2. Whether responses are actually rewritten → script logs<br>3. Whether target apps adopt the new fix → map app<br>4. Satellite GPS is out of scope (network positioning only)',
   }
 };
 
@@ -468,6 +495,7 @@ function renderActive() {
   } else {
     el.textContent = t('querying');
   }
+  renderDiag();
 }
 
 const map = L.map('map').setView([lat, lon], 13); map.zoomControl.setPosition('bottomright');
@@ -664,6 +692,32 @@ function clearAllFav() {
   saveFavs([]);
   renderFavs();
   toast(t('all_cleared'));
+}
+
+/* ---- 自我診斷: 只列本頁能拿到證據的三項; iPhone 端一律灰燈待驗證 ---- */
+let siteOk = null; // null=未測, true/false=有證據
+function renderDiag() {
+  const box = document.getElementById('diagList');
+  if (!box) return;
+  const chanHit = (activeStatus === 'ok' || activeStatus === 'none' || activeStatus === 'cleared');
+  const row = (st, label) => '<div class="diag-row diag-' + st + '">' + label + '</div>';
+  let html = row(siteOk === null ? 'wait' : (siteOk ? 'ok' : 'bad'), t('diag_web'));
+  html += row(chanHit ? 'ok' : 'wait', t(chanHit ? 'diag_chan_ok' : 'diag_chan_wait'));
+  if (chanHit) {
+    html += row(activeStatus === 'ok' ? 'ok' : 'wait',
+      activeStatus === 'ok' ? t('diag_saved', activeLon.toFixed(6) + ', ' + activeLat.toFixed(6)) : t('diag_notsaved'));
+  } else {
+    html += row('wait', t('diag_saved_wait'));
+  }
+  box.innerHTML = html;
+}
+function runDiag() {
+  // q 長度 <2 時 Worker 直接回 {results:[]} 不出站——純「本站還活著」探測
+  siteOk = null; renderDiag();
+  fetch('/api/search?q=_', { cache: 'no-store', signal: AbortSignal.timeout(8000) })
+    .then(r => r.json()).then(d => { siteOk = Array.isArray(d.results); })
+    .catch(() => { siteOk = false; })
+    .finally(() => { queryActive(true); });
 }
 
 /* ---- Active location query ---- */
@@ -866,7 +920,7 @@ try {
 
 applyTheme();
 applyI18n();
-queryActive(true);
+runDiag(); // 初始探測: 網站可達性＋通道狀態（內部接 queryActive(true)）
 syncSticky();
 <\/script>
 </body>

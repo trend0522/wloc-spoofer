@@ -66,6 +66,8 @@ app.get("/api/search", async (c) => {
         "User-Agent": "wloc-ios-place-search/1.0",
         "Accept-Language": "zh-Hant,zh-TW,zh,en",
       },
+      // Hang prevention: Nominatim slow = whole Worker slow. Fallback shape unchanged ({results:[]}).
+      signal: AbortSignal.timeout(8000),
     });
     if (!resp.ok) return c.json({ results: [] });
     raw = await resp.json();
