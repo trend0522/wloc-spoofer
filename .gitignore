@@ -3,4 +3,3 @@ node_modules
 bun.lock
 .env
 .dev.vars
-/package-lock.json
