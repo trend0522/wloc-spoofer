@@ -9,6 +9,8 @@
 
 # Apple WLOC 定位修改
 
+> 本專案源自 [ios151/wloc](https://github.com/ios151/wloc)，授權方式為 AGPL-3.0（見 `LICENSE`）。衍生作品須依同條款開放原始碼。
+
 修改 Apple 网络定位服务 (WiFi/基站) 返回的坐标，实现 iOS 网络定位虚拟定位。打开在线选点页面选位置即可生效，无需手动填经纬度。
 
 ---
