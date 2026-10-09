@@ -4,6 +4,22 @@ import { parseCoords, gcj02ToWgs84, toWgs84, round6, inRange } from "./parse.js"
 
 const app = new Hono();
 
+/* ---- P0 abuse throttle: per-IP fixed window, isolate-local ----
+   ponytail: a Map in module scope, NOT KV — KV needs a namespace + wrangler binding (deploy-config change).
+   Ceiling: each Worker isolate counts its own traffic; a cold start resets it. Good enough to stop
+   dictionary-flooding Nominatim / parse-proxy abuse from one client; not a distributed quota.
+   Upgrade path when real quota is needed: same window logic against env.WLOC_RL KV binding. */
+const rlWindows = new Map();
+function rateLimited(key, max, windowMs, now) {
+  if (rlWindows.size > 5000) rlWindows.clear(); // crude bound: 5k live IPs in one window is already an incident
+  const t = rlWindows.get(key);
+  if (!t || now - t.start >= windowMs) { rlWindows.set(key, { start: now, n: 1 }); return false; }
+  t.n++;
+  return t.n > max;
+}
+const rlNow = () => Date.now();
+const RL_SEARCH_MAX = 20, RL_PARSE_MAX = 20, RL_WINDOW_MS = 60000; // per minute per IP
+
 app.get("/", (c) => {
   return c.html(getPageHtml());
 });
@@ -13,6 +29,12 @@ app.get("/", (c) => {
 //   Returns {lat, lon, name}. Conversion is dispatched by the detected source: Amap / Apple Maps (GCJ-02 in mainland China) -> WGS84; Baidu (BD09) -> GCJ-02 -> WGS84; HK/Macau/Taiwan and out-of-China points pass through unchanged (they are already WGS84). cs= forces a given system; cs=none forces no conversion.
 //   Without format=json it returns a plain-text "lat=..&lon=.." fragment.
 app.get("/api/parse", async (c) => {
+  const ip = (c.req.raw.cf && c.req.raw.cf.ip) || c.req.header("x-forwarded-for") || "unknown";
+  if (rateLimited("p:" + ip, RL_PARSE_MAX, RL_WINDOW_MS, rlNow())) {
+    c.header("Access-Control-Allow-Origin", "*");
+    c.header("Retry-After", "60");
+    return c.json({ error: "請求過頻，請一分鐘後再試" }, 429);
+  }
   const raw = c.req.query("u") || "";
   const cs = (c.req.query("cs") || "").toLowerCase();
   const fmt = (c.req.query("format") || "").toLowerCase();
@@ -55,6 +77,13 @@ app.get("/api/search", async (c) => {
   );
   const cached = await cache.match(cacheKey);
   if (cached) return c.json(await cached.json());
+
+  // Past cache-miss = this request will hit Nominatim → throttle egress only.
+  const ip = (c.req.raw.cf && c.req.raw.cf.ip) || c.req.header("x-forwarded-for") || "unknown";
+  if (rateLimited("s:" + ip, RL_SEARCH_MAX, RL_WINDOW_MS, rlNow())) {
+    c.header("Retry-After", "60");
+    return c.json({ results: [], limited: true }); // 契約不變：仍 200 + {results:[]}
+  }
 
   const api =
     `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&q=${encodeURIComponent(q)}`;

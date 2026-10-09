@@ -304,7 +304,7 @@ const I18N = {
     parsing: '解析中...', parse_unreachable: '解析服務不可達',
     parsed: function(n, lo, la){ return '已解析：' + (n || (lo.toFixed(4) + ', ' + la.toFixed(4))); },
     enter_place: '請輸入地名', searching: '搜尋中...',
-    not_found: function(q){ return '未找到：' + q; }, search_failed: '搜尋失敗',
+    not_found: function(q){ return '未找到：' + q; }, search_failed: '搜尋失敗', rl_hint: '查詢過頻，請一分鐘後再試',
     invalid_coord: '座標超出合法範圍（緯度 ±90、經度 ±180）',
     copied: '已複製座標', copy_failed: '複製失敗，請手動選取',
     diag_title: '自我診斷', diag_recheck: '重新檢測',
@@ -363,7 +363,7 @@ const I18N = {
     parsing: 'Parsing...', parse_unreachable: 'Parse service unreachable',
     parsed: function(n, lo, la){ return 'Parsed: ' + (n || (lo.toFixed(4) + ', ' + la.toFixed(4))); },
     enter_place: 'Please enter a place name', searching: 'Searching...',
-    not_found: function(q){ return 'Not found: ' + q; }, search_failed: 'Search failed',
+    not_found: function(q){ return 'Not found: ' + q; }, search_failed: 'Search failed', rl_hint: 'Too many queries — try again in a minute',
     invalid_coord: 'Coordinates out of range (latitude ±90, longitude ±180)',
     copied: 'Coordinates copied', copy_failed: 'Copy failed, select manually',
     diag_title: 'Diagnostics', diag_recheck: 'Recheck',
@@ -882,6 +882,7 @@ async function searchPlace() {
     // cache (7d). Browser-direct Nominatim hits its rate limits and policy.
     const r = await fetch('/api/search?q=' + encodeURIComponent(q), { signal: AbortSignal.timeout(8000) });
     const d = await r.json();
+    if (d && d.limited) { toast(t('rl_hint'), 4000); return; }
     const results = sanitizeResults((d && d.results) || []);
     if (!results.length) { toast(t('not_found', q), 3000); return; }
     if (results.length === 1) { chooseResult(results[0]); return; }
