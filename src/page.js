@@ -47,6 +47,15 @@ body { font-family:-apple-system,system-ui,"SF Pro","Helvetica Neue",sans-serif;
 .input-row input { flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; outline:none; min-width:0; background:var(--card); color:var(--text); }
 .input-row input::placeholder { color:var(--gray); }
 .input-row input:focus { border-color:var(--blue); }
+.sugg-wrap { position:relative; }
+.sugg-list { position:absolute; z-index:1002; top:calc(100% + 4px); left:0; right:0; background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 28px rgba(0,0,0,.22); max-height:264px; overflow-y:auto; }
+.sugg-item { display:flex; align-items:center; gap:8px; padding:10px 12px; cursor:pointer; border-bottom:1px solid var(--line); }
+.sugg-item:last-child { border-bottom:none; }
+.sugg-item.sel, .sugg-item:active { background:var(--chip); }
+.sugg-item .s-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:14px; }
+.sugg-item .s-tag { flex:none; font-size:12px; color:var(--blue); }
+.sugg-item mark { background:color-mix(in srgb, var(--blue) 24%, transparent); color:inherit; border-radius:3px; padding:0 1px; }
+.sugg-empty { padding:10px 12px; font-size:13px; color:var(--gray); }
 .status { font-size:13px; color:var(--gray); margin-top:8px; text-align:center; }
 .error-banner { background:var(--red); color:var(--danger-on); padding:14px 16px; border-radius:12px; margin-bottom:12px; font-size:14px; line-height:1.5; display:none; }
 .error-banner b { display:block; margin-bottom:4px; }
@@ -186,9 +195,10 @@ button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
   </div>
   <div class="card">
     <h3 data-i18n="search_title">Search place</h3>
-    <div class="input-row">
-      <input id="searchInput" data-i18n-ph="search_ph" placeholder="Enter a place name (e.g. The Bund, Shanghai)" aria-label="Place name search" />
+    <div class="input-row sugg-wrap">
+      <input id="searchInput" data-i18n-ph="search_ph" placeholder="Enter a place name (e.g. The Bund, Shanghai)" aria-label="Place name search" autocomplete="off" />
       <button class="btn btn-secondary" style="flex:none;min-width:56px" data-i18n="search" onclick="searchPlace()">Search</button>
+      <div id="suggList" class="sugg-list" style="display:none" role="listbox"></div>
     </div>
   </div>
   <div class="status" id="status" aria-live="polite">Pick a location, then tap "Save to Device" to write it to your proxy tool</div>
@@ -288,7 +298,8 @@ const I18N = {
     parsing: '解析中...', parse_unreachable: '解析服務不可達',
     parsed: function(n, lo, la){ return '已解析：' + (n || (lo.toFixed(4) + ', ' + la.toFixed(4))); },
     enter_place: '請輸入地名', searching: '搜尋中...',
-    not_found: function(q){ return '未找到：' + q; }, search_failed: '搜尋失敗'
+    not_found: function(q){ return '未找到：' + q; }, search_failed: '搜尋失敗',
+    no_results: function(q){ return '無符合「' + q + '」的結果'; }
   },
   en: {
     title: 'WLOC Location Spoofer',
@@ -337,7 +348,8 @@ const I18N = {
     parsing: 'Parsing...', parse_unreachable: 'Parse service unreachable',
     parsed: function(n, lo, la){ return 'Parsed: ' + (n || (lo.toFixed(4) + ', ' + la.toFixed(4))); },
     enter_place: 'Please enter a place name', searching: 'Searching...',
-    not_found: function(q){ return 'Not found: ' + q; }, search_failed: 'Search failed'
+    not_found: function(q){ return 'Not found: ' + q; }, search_failed: 'Search failed',
+    no_results: function(q){ return 'No results for “' + q + '”'; }
   }
 };
 
@@ -828,7 +840,112 @@ document.addEventListener('paste', e => {
   if (e.target !== input) input.value = text;
   setTimeout(parseUrl, 200);
 });
-document.getElementById('searchInput').addEventListener('keydown', e => { if(e.key==='Enter') searchPlace(); });
+// --- Live search suggestions (Apple Notes-style: type-to-search, favorites
+//     first, keyboard selection, stale-response guard) ---
+const searchInputEl = document.getElementById('searchInput');
+const suggListEl = document.getElementById('suggList');
+let suggItems = [];
+let suggSel = -1;
+let suggQ = '';
+let suggSeq = 0;
+let suggTimer = null;
+
+function highlightSugg(text, q) {
+  if (!q) return escHtml(text);
+  const ti = text.toLowerCase(), qi = q.toLowerCase();
+  const idx = ti.indexOf(qi);
+  if (idx < 0) return escHtml(text);
+  return escHtml(text.slice(0, idx)) + '<mark>' + escHtml(text.slice(idx, idx + q.length)) + '</mark>' + escHtml(text.slice(idx + q.length));
+}
+
+function suggClose() {
+  clearTimeout(suggTimer);
+  suggItems = []; suggSel = -1; suggQ = '';
+  suggListEl.style.display = 'none';
+  suggListEl.innerHTML = '';
+}
+
+function renderSuggestions() {
+  if (!suggItems.length && !suggQ) { suggListEl.style.display = 'none'; return; }
+  if (!suggItems.length) {
+    suggListEl.innerHTML = '<div class="sugg-empty">' + escHtml(t('no_results', suggQ)) + '<\\/div>';
+    suggListEl.style.display = '';
+    return;
+  }
+  suggListEl.innerHTML = suggItems.map((it, i) =>
+    '<div class="sugg-item' + (i === suggSel ? ' sel' : '') + '" data-i="' + i + '">' +
+      '<span class="s-tag">' + (it.fav ? '★' : '') + '</span>' +
+      '<span class="s-name">' + highlightSugg(it.name, suggQ) + '</span>' +
+    '<\\/div>'
+  ).join('');
+  suggListEl.style.display = '';
+}
+
+function applySugg(i) {
+  const it = suggItems[i];
+  if (!it) return;
+  suggClose();
+  moveTo(it.lat, it.lon, 15);
+  toast(String(it.name || it.detail || '').slice(0, 40));
+}
+
+async function runLiveSearch() {
+  const q = searchInputEl.value.trim();
+  if (q.length < 2) { suggClose(); return; }
+  const seq = ++suggSeq;
+  const lq = q.toLowerCase();
+  const local = getFavs().filter(f => f.name && String(f.name).toLowerCase().includes(lq));
+  let remote = [];
+  try {
+    const r = await fetch('/api/search?q=' + encodeURIComponent(q), { signal: AbortSignal.timeout(6000) });
+    if (r.ok) { const d = await r.json(); remote = (d && d.results) || []; }
+  } catch (e) {}
+  if (seq !== suggSeq) return; // a newer query superseded this one — discard
+  suggQ = q;
+  const seen = new Set();
+  suggItems = [];
+  for (const f of local) {
+    suggItems.push({ name: f.name, detail: f.lon.toFixed(6) + ', ' + f.lat.toFixed(6), lat: f.lat, lon: f.lon, fav: true });
+    seen.add(String(f.name).toLowerCase());
+  }
+  for (const p of remote) {
+    const nm = String(p.name || p.detail || '').trim();
+    if (!nm || seen.has(nm.toLowerCase())) continue;
+    suggItems.push({ name: nm, detail: p.detail, lat: p.lat, lon: p.lon, fav: false });
+    if (suggItems.length >= 8) break;
+  }
+  suggSel = suggItems.length ? 0 : -1;
+  renderSuggestions();
+}
+
+function scheduleSuggest() {
+  clearTimeout(suggTimer);
+  if (searchInputEl.value.trim().length < 2) { suggClose(); return; }
+  suggTimer = setTimeout(runLiveSearch, 250);
+}
+
+searchInputEl.addEventListener('input', scheduleSuggest);
+searchInputEl.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!suggItems.length) return;
+    e.preventDefault();
+    suggSel = (suggSel + (e.key === 'ArrowDown' ? 1 : suggItems.length - 1)) % suggItems.length;
+    renderSuggestions();
+    return;
+  }
+  if (e.key === 'Escape') { suggClose(); return; }
+  if (e.key === 'Enter') {
+    if (suggSel >= 0) { e.preventDefault(); applySugg(suggSel); return; }
+    searchPlace();
+  }
+});
+searchInputEl.addEventListener('blur', () => { setTimeout(suggClose, 150); });
+suggListEl.addEventListener('mousedown', e => {
+  const item = e.target.closest('.sugg-item');
+  if (!item) return;
+  e.preventDefault(); // keep focus in the input
+  applySugg(Number(item.dataset.i));
+});
 document.getElementById('urlInput').addEventListener('keydown', e => { if(e.key==='Enter') parseUrl(); });
 document.getElementById('favNameInput').addEventListener('keydown', e => { if(e.key==='Enter') confirmFav(); });
 
