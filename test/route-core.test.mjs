@@ -29,7 +29,7 @@ function core(opts = {}) {
     AbortSignal: { timeout: (ms) => ({ __timeout: ms }) },
   };
   vm.createContext(ctx);
-  vm.runInContext(ROUTE_CORE_JS + "\n;var OUT={ROUTE_MODES,parseLatLngText,decodePolyline,havMeters,routeCumulative,routePositionAt,valhallaRouteBody,mapboxDirectionsUrl,fetchRoute};", ctx);
+  vm.runInContext(ROUTE_CORE_JS + "\n;var OUT={ROUTE_MODES,parseLatLngText,polylineEncode,decodePolyline,havMeters,routeCumulative,routePositionAt,valhallaRouteBody,mapboxDirectionsUrl,fetchRoute};", ctx);
   return { fns: vm.runInContext("OUT", ctx), calls };
 }
 
@@ -52,6 +52,16 @@ test("decodePolyline: round-trip 對已知折線逐點還原 (polyline6)", () =>
   assert.equal(pts.length, 3);
   ref.forEach((p, i) => {
     assert.ok(Math.abs(pts[i].lat - p[0]) < 1e-9 && Math.abs(pts[i].lon - p[1]) < 1e-9, 'pt' + i);
+  });
+});
+
+test("polylineEncode 與獨立測試編碼器等值；decode(encode(x))==x", () => {
+  const { fns } = core();
+  const ref = [[25.048, 121.517], [24.99, 121.53], [22.62, 120.31], [-33.86, 151.21]];
+  assert.equal(fns.polylineEncode(ref, 1e6), encodeFake(ref)); // 雙實作互查
+  const back = fns.decodePolyline(fns.polylineEncode(ref, 1e6), 1e6);
+  ref.forEach((p, i) => {
+    assert.ok(Math.abs(back[i].lat - p[0]) < 1e-9 && Math.abs(back[i].lon - p[1]) < 1e-9, 'rt' + i);
   });
 });
 

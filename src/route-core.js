@@ -48,6 +48,22 @@ function parseLatLngText(s) {
   return { lat: la, lon: lo };
 }
 
+/* ---- polyline 編碼（層級2 裝置寫入用；與 decodePolyline 互為逆） ---- */
+function polylineEncode(pairs, factor) {
+  var lastLat = 0, lastLon = 0, out = '';
+  function step(v) {
+    var n = v < 0 ? ~(v << 1) : (v << 1);
+    while (n >= 0x20) { out += String.fromCharCode((0x20 | (n & 0x1f)) + 63); n >>= 5; }
+    out += String.fromCharCode(n + 63);
+  }
+  for (var i = 0; i < pairs.length; i++) {
+    var la = Math.round(pairs[i][0] * factor), lo = Math.round(pairs[i][1] * factor);
+    step(la - lastLat); lastLat = la;
+    step(lo - lastLon); lastLon = lo;
+  }
+  return out;
+}
+
 /* ---- polyline 解碼（Google 編碼；Valhalla 預設 1e6、舊服務 1e5） ---- */
 function decodePolyline(str, factor) {
   var pts = [], index = 0, lat = 0, lon = 0, len = str.length;

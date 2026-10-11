@@ -274,6 +274,11 @@ button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
       <button type="button" class="btn btn-sm btn-secondary" id="simResetBtn" data-i18n="sim_reset" onclick="simReset()" disabled>重設</button>
     </div>
     <div class="route-meta" id="simNow" style="display:none"></div>
+    <div class="row" style="margin-top:4px">
+      <button type="button" class="btn btn-sm btn-primary" id="devSimBtn" data-i18n="dev_start" onclick="deviceSimToggle()" disabled>開始定位模擬</button>
+      <button type="button" class="btn btn-sm btn-secondary" id="devStopBtn" data-i18n="dev_stop" onclick="deviceSimStop()" style="display:none">停止並清除</button>
+    </div>
+    <div class="route-meta" id="devSimState" aria-live="polite"></div>
   </div>
   <div class="status" id="status" aria-live="polite">Pick a location, then tap "Save to Device" to write it to your proxy tool</div>
 </div>
@@ -402,7 +407,15 @@ const I18N = {
     route_provider: function(p){ return '（來源：' + p + '）'; },
     sim_arrived: '✓ 抵達終點', sim_running: function(km){ return '模擬中：已走 ' + km; },
     endpoints_cleared: '已清除起終點', swapped: '已交換起終點',
-    route_note_maptiler: '（路線 Key 是 MapTiler，但其路線端點無法驗證可用，已改用免 Key 的 Valhalla）'
+    route_note_maptiler: '（路線 Key 是 MapTiler，但其路線端點無法驗證可用，已改用免 Key 的 Valhalla）',
+    dev_start: '開始定位模擬', dev_pause: '暫停裝置模擬', dev_resume: '繼續裝置模擬', dev_stop: '停止並清除',
+    dev_writing: '寫入裝置中…', dev_started: '✓ 已寫入裝置：下次 App 定位請求起，沿路線逐次推進（實例節律決定更新粒度，非連續流動）',
+    dev_paused: '裝置模擬已暫停（路線保留）', dev_resumed: '裝置模擬已繼續（暫停時段不推進）',
+    dev_stopped: '裝置模擬已停止並清除，回復單點定位模式',
+    dev_active: function(m, v){ return '裝置模擬進行中：' + m + ' · ' + v.toFixed(1) + ' m/s'; },
+    dev_gone: '裝置上已無進行中的路線模擬', dev_status_fail: '無法取得裝置模擬狀態（模組未連線？)',
+    dev_failed: function(e){ return '✗ 裝置模擬操作失敗：' + e; },
+    dev_no_module: '代理模組未回應——請確認已安裝 WLOC 模組且 MITM 生效'
   },
   en: {
     title: 'WLOC Location Spoofer',
@@ -476,7 +489,15 @@ const I18N = {
     route_provider: function(p){ return ' (via ' + p + ')'; },
     sim_arrived: '✓ Arrived', sim_running: function(km){ return 'Simulating: ' + km + ' travelled'; },
     endpoints_cleared: 'Start and destination cleared', swapped: 'Start and destination swapped',
-    route_note_maptiler: ' (routing key is MapTiler, but its directions endpoint could not be verified — fell back to free Valhalla)'
+    route_note_maptiler: ' (routing key is MapTiler, but its directions endpoint could not be verified — fell back to free Valhalla)',
+    dev_start: 'Start Device Simulation', dev_pause: 'Pause Device Sim', dev_resume: 'Resume Device Sim', dev_stop: 'Stop & Clear',
+    dev_writing: 'Writing to device…', dev_started: '✓ Written to device: from the next app location request, positions advance along the route (update granularity = the app’s request cadence, not continuous motion)',
+    dev_paused: 'Device simulation paused (route kept)', dev_resumed: 'Device simulation resumed (pause time is not counted)',
+    dev_stopped: 'Device simulation stopped and cleared; single-point mode restored',
+    dev_active: function(m, v){ return 'Device simulation active: ' + m + ' · ' + v.toFixed(1) + ' m/s'; },
+    dev_gone: 'No route simulation active on the device anymore', dev_status_fail: 'Cannot read device simulation state (module offline?)',
+    dev_failed: function(e){ return '✗ Device simulation operation failed: ' + e; },
+    dev_no_module: 'Proxy module not responding — make sure the WLOC module is installed and MITM is active'
   }
 };
 
@@ -781,9 +802,7 @@ function testMapCfg() {
   img.src = url;
 }
 
-/* ---- 功能B：路線規劃與模擬預覽（層級1；座標一律 WGS84） ----
-   parseLatLngText / fetchRoute / routeCumulative / routePositionAt 由
-   src/route-core.js 注入（頁面與 vm 測試共用同一實作，無鏡像漂移）。 */
+// 路線規劃與模擬（層級1 網頁動畫 + 層級2 裝置模擬控制；座標一律 WGS84）
 let routeMode = 'walking';
 let routeData = null;   // { coords, cum, total, provider, mode, distance_m, duration_s }
 let routeLine = null, simMarker = null;
@@ -883,6 +902,7 @@ async function planRoute() {
     document.getElementById('simPlayBtn').disabled = false;
     document.getElementById('simResetBtn').disabled = false;
     simReset(true);
+    devSimRender(); // 有路線後才開放「開始定位模擬」
   } catch (e) {
     const code = String(e && e.message || '');
     // 失敗保留起終點、模式與其他設定；只清掉路線圖形
@@ -963,6 +983,104 @@ function showSimPoint(p, distM, live) {
   const el = document.getElementById('simNow');
   el.style.display = '';
   el.textContent = t('sim_running', (distM / 1000).toFixed(2) + ' km / ' + (routeData ? (routeData.total / 1000).toFixed(2) : '0') + ' km') + ' · ' + p.lat.toFixed(5) + ', ' + p.lon.toFixed(5);
+}
+
+/* ---- 層級2：裝置定位模擬（真實資料通道 = 經 MITM 攔截的 SAVE_API route-* actions）
+   網頁動畫（上）與裝置模擬（下）是兩條獨立通道；這裡的每個狀態都來自實際呼叫結果，
+   呼叫失敗一律顯示錯誤，絕不假裝啟動成功。 ---- */
+let devSim = { active: false, paused: false, poll: null, starting: false };
+function devSimShape(coords) {
+  // 降採樣 ≤800 點（端點保真），polyline6 編碼
+  const stride = Math.max(1, Math.ceil(coords.length / 800));
+  const pts = [];
+  for (let i = 0; i < coords.length; i += stride) pts.push([coords[i].lat, coords[i].lon]);
+  const last = coords[coords.length - 1];
+  if (pts[pts.length - 1][0] !== last.lat || pts[pts.length - 1][1] !== last.lon) pts.push([last.lat, last.lon]);
+  return polylineEncode(pts, 1e6);
+}
+async function devSimApi(query) {
+  const r = await fetch(SAVE_API + '?' + query, { method: 'GET', mode: 'cors', cache: 'no-store', signal: AbortSignal.timeout(8000) });
+  const d = await r.json();
+  return d;
+}
+function devSimSetState(msg, isError) {
+  const el = document.getElementById('devSimState');
+  el.textContent = msg || '';
+  el.className = 'route-meta' + (isError ? ' is-error' : (msg ? ' is-ok' : ''));
+}
+function devSimRender() {
+  const btn = document.getElementById('devSimBtn'), stop = document.getElementById('devStopBtn');
+  btn.disabled = !routeData && !devSim.active;
+  if (!devSim.active) { btn.textContent = t('dev_start'); stop.style.display = 'none'; }
+  else { btn.textContent = devSim.paused ? t('dev_resume') : t('dev_pause'); stop.style.display = ''; }
+}
+async function deviceSimToggle() {
+  if (devSim.starting) return;
+  devSim.starting = true;
+  try {
+    if (!devSim.active) {
+      if (!routeData) { devSimSetState(t('route_need_pts'), true); return; }
+      const q = 'action=route-set&shape=' + encodeURIComponent(devSimShape(routeData.coords)) +
+        '&speed=' + (ROUTE_MODES[routeData.mode] || { baseSpeed: 1.4 }).baseSpeed +
+        '&mult=' + simSpeedFactor() + '&t0=' + Date.now() +
+        '&mode=' + routeData.mode + '&provider=' + routeData.provider;
+      devSimSetState(t('dev_writing'));
+      let d = null;
+      try { d = await devSimApi(q); } catch (e) { d = null; }
+      if (d && d.success) {
+        devSim.active = true; devSim.paused = false;
+        devSimSetState(t('dev_started'), false);
+        devSimPoll();
+      } else {
+        devSimSetState(t('dev_failed', (d && d.error) || t('dev_no_module')), true);
+      }
+    } else {
+      const wantPause = !devSim.paused;
+      let d2 = null;
+      try { d2 = await devSimApi('action=' + (wantPause ? 'route-pause' : 'route-resume')); } catch (e) { d2 = null; }
+      if (d2 && d2.success) {
+        devSim.paused = wantPause;
+        devSimSetState(wantPause ? t('dev_paused') : t('dev_resumed'));
+      } else {
+        devSimSetState(t('dev_failed', (d2 && d2.error) || t('dev_no_module')), true);
+      }
+    }
+  } finally {
+    devSim.starting = false;
+    devSimRender();
+  }
+}
+async function deviceSimStop() {
+  let d = null;
+  try { d = await devSimApi('action=route-clear'); } catch (e) { d = null; }
+  if (d && d.success) {
+    clearInterval(devSim.poll); devSim = { active: false, paused: false, poll: null, starting: false };
+    devSimSetState(t('dev_stopped'));
+  } else {
+    devSimSetState(t('dev_failed', (d && d.error) || t('dev_no_module')), true);
+  }
+  devSimRender();
+}
+function devSimPoll() {
+  clearInterval(devSim.poll);
+  devSim.poll = setInterval(async () => {
+    if (!devSim.active) return;
+    try {
+      const d = await devSimApi('action=route-status');
+      if (d && d.success) {
+        if (!d.active) { clearInterval(devSim.poll); devSim.active = false; devSimSetState(t('dev_gone')); }
+        else { devSim.paused = !!d.paused; devSimSetState(t('dev_active', d.mode, Number(d.speed) * Number(d.mult))); }
+      } else { devSimSetState(t('dev_status_fail'), true); }
+    } catch (e) { devSimSetState(t('dev_status_fail'), true); }
+    devSimRender();
+  }, 5000);
+}
+function deviceSimProbe() {
+  // 重載後探測裝置上是否已有進行中的模擬（不假設、不顯示未驗證狀態）
+  devSimApi('action=route-status').then(d => {
+    if (d && d.success && d.active) { devSim.active = true; devSim.paused = !!d.paused; devSimSetState(t('dev_active', d.mode, Number(d.speed) * Number(d.mult))); devSimPoll(); }
+  }).catch(() => {});
+  devSimRender();
 }
 
 // marker 延遲建立: 未選點時地圖上沒有假位置, 第一次 setPos 才放上去。
@@ -1420,6 +1538,7 @@ loadMapCfg();
 renderStyleSel();
 applyMapCfgUI();
 simSpeedChanged();
+deviceSimProbe();
 <\/script>
 </body>
 </html>`;
