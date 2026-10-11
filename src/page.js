@@ -1,4 +1,5 @@
 import { GCJ_BROWSER_JS } from "./gcj-browser.js";
+import { ROUTE_CORE_JS } from "./route-core.js";
 
 export function getPageHtml() {
   return `<!DOCTYPE html>
@@ -103,6 +104,22 @@ button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
 .popover { position:fixed; top:60px; right:10px; z-index:1100; background:var(--card); border:1px solid var(--edge); border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.25); padding:6px; width:232px; max-height:70vh; overflow:auto; }
 .popover.hidden { display:none; }
 .popover h4 { font-size:13px; font-weight:600; color:var(--gray); letter-spacing:.4px; padding:8px 10px 4px; }
+/* 功能A: 自訂圖磚(進階) popover 內嵌表單; 功能B: 路線卡控件 */
+.mapcfg { padding:8px 10px 10px; border-top:1px solid var(--line); margin-top:6px; display:flex; flex-direction:column; gap:8px; }
+.mapcfg select, .mapcfg input { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:var(--bg); color:var(--text); }
+.mapcfg .mc-btns { display:flex; gap:6px; }
+.mapcfg .mc-btns .btn { flex:1; padding:9px 6px; font-size:13px; min-height:40px; }
+.mapcfg-hint { font-size:12px; color:var(--gray); line-height:1.45; }
+.route-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+.route-grid label { font-size:12px; color:var(--gray); display:flex; flex-direction:column; gap:4px; }
+.route-grid input { padding:9px 10px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:var(--bg); color:var(--text); min-width:0; }
+.mode-row { display:flex; gap:6px; margin-bottom:10px; }
+.mode-btn { flex:1; padding:9px 4px; font-size:13px; font-weight:600; border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:9px; cursor:pointer; min-height:40px; }
+.mode-btn.active { background:color-mix(in srgb, var(--blue) 16%, var(--chip)); border-color:var(--blue); color:var(--blue); }
+.route-meta { font-size:13px; color:var(--gray); margin-bottom:8px; line-height:1.5; }
+.sim-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.sim-row input[type=range] { flex:1; accent-color:var(--blue); }
+.sim-row .sim-km { font-family:"SF Mono",monospace; font-size:12px; color:var(--gray); white-space:nowrap; }
 .layer-opt { display:flex; flex-direction:column; gap:2px; padding:8px 10px; border-radius:8px; cursor:pointer; }
 .layer-opt:hover { background:var(--bg); }
 .layer-opt input { position:absolute; opacity:0; pointer-events:none; }
@@ -145,6 +162,23 @@ button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
   <label class="layer-opt"><input type="radio" name="layer" value="dark" onclick="switchLayer('dark')"><span class="l-name" data-i18n="layer_dark">Dark</span><span class="l-desc" data-i18n="layer_dark_d">Dark street style</span></label>
   <h4 data-i18n="layer_group_china">China maps</h4>
   <label class="layer-opt"><input type="radio" name="layer" value="amap" onclick="switchLayer('amap')"><span class="l-name" data-i18n="layer_amap">Amap</span><span class="l-desc" data-i18n="layer_amap_d">China map data, offset auto-corrected</span></label>
+  <h4 data-i18n="layer_group_custom">Custom (advanced)</h4>
+  <label class="layer-opt"><input type="radio" name="layer" value="custom" id="layerCustomRadio" onclick="switchLayer('custom')"><span class="l-name" data-i18n="layer_custom">自訂圖磚</span><span class="l-desc" data-i18n="layer_custom_d" id="layerCustomDesc">尚未設定</span></label>
+  <div class="mapcfg">
+    <select id="mapProviderSel" aria-label="地圖供應商" onchange="onProviderChange()">
+      <option value="mapbox">Mapbox</option>
+      <option value="maptiler">MapTiler</option>
+    </select>
+    <select id="mapStyleSel" aria-label="底圖樣式"></select>
+    <input id="mapTileKey" type="password" autocomplete="off" spellcheck="false" data-i18n-ph="mc_tile_ph" placeholder="圖磚 Token（只存本機瀏覽器）" aria-label="圖磚 Token" />
+    <input id="mapRouteKey" type="password" autocomplete="off" spellcheck="false" data-i18n-ph="mc_route_ph" placeholder="路線 API Key（選填，另填）" aria-label="路線 API Key" />
+    <div class="mc-btns">
+      <button type="button" class="btn btn-secondary" data-i18n="mc_save" onclick="saveMapCfg()">儲存</button>
+      <button type="button" class="btn btn-secondary" data-i18n="mc_test" onclick="testMapCfg()">測試</button>
+      <button type="button" class="btn btn-danger" data-i18n="mc_clear" onclick="clearMapCfg()">清除</button>
+    </div>
+    <div class="mapcfg-hint" data-i18n-html="mc_hint"></div>
+  </div>
 </div>
 </div>
 <div class="panel">
@@ -201,6 +235,33 @@ button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
       <div id="suggList" class="sugg-list" style="display:none" role="listbox"></div>
     </div>
   </div>
+  <div class="card">
+    <h3 data-i18n="route_title">路線規劃與模擬預覽</h3>
+    <div class="route-grid">
+      <label><span data-i18n="route_from">起點（可點「取選點」）</span><input id="routeFrom" type="text" inputmode="decimal" placeholder="lat, lon" /></label>
+      <label><span data-i18n="route_to">終點</span><input id="routeTo" type="text" inputmode="decimal" placeholder="lat, lon" /></label>
+    </div>
+    <div class="mode-row" role="group" aria-label="交通方式">
+      <button type="button" class="mode-btn active" id="modeWalking" data-i18n="mode_walk" onclick="setRouteMode('walking')">步行</button>
+      <button type="button" class="mode-btn" id="modeBiking" data-i18n="mode_bike" onclick="setRouteMode('biking')">腳踏車</button>
+      <button type="button" class="mode-btn" id="modeDriving" data-i18n="mode_drive" onclick="setRouteMode('driving')">開車</button>
+    </div>
+    <div class="sim-row">
+      <button type="button" class="btn btn-sm btn-secondary" style="flex:none" data-i18n="route_use_pick" onclick="routeUsePick()">取選點</button>
+      <button type="button" class="btn btn-sm btn-primary" style="flex:none" data-i18n="route_plan" onclick="planRoute()">規劃路線</button>
+    </div>
+    <div class="route-meta" id="routeMeta" aria-live="polite" data-i18n="route_hint">路網來源：Valhalla（OSM 社群公共服務，免 Key）。填入地圖 Key 後可改用 Mapbox / MapTiler 路線服務。這層只是網頁預覽——不會讓 iOS 系統定位沿路移動。</div>
+    <div class="sim-row">
+      <span style="font-size:12px;color:var(--gray)" data-i18n="sim_speed">速度</span>
+      <input id="simSpeed" type="range" min="0.25" max="8" step="0.25" value="1" aria-label="模擬速度倍率" oninput="simSpeedChanged()" />
+      <span class="sim-km" id="simSpeedVal">1.0×</span>
+    </div>
+    <div class="row">
+      <button type="button" class="btn btn-sm btn-primary" id="simPlayBtn" data-i18n="sim_start" onclick="simToggle()" disabled>開始</button>
+      <button type="button" class="btn btn-sm btn-secondary" id="simResetBtn" data-i18n="sim_reset" onclick="simReset()" disabled>重設</button>
+    </div>
+    <div class="route-meta" id="simNow" style="display:none"></div>
+  </div>
   <div class="status" id="status" aria-live="polite">Pick a location, then tap "Save to Device" to write it to your proxy tool</div>
 </div>
 <div id="stickyBar">
@@ -228,6 +289,7 @@ if (typeof L === 'undefined') {
   throw new Error('leaflet unavailable');
 }
 ${GCJ_BROWSER_JS}
+${ROUTE_CORE_JS}
 const SAVE_API = 'https://gs-loc.apple.com/wloc-settings/save';
 const FAV_KEY = 'wloc_favorites';
 const LANG_KEY = 'wloc_lang';
@@ -244,6 +306,7 @@ let firstFail = false; // 首次載入查詢失敗 = 待機語氣（不出橫幅
 let savedLon = null, savedLat = null, savedTimeStr = '';
 let saveTimer = null;
 let layerIsGcj = false;
+let currentLayerIsCustom = false; // 功能A：目前底圖是否為自訂圖磚層
 
 // 高德瓦片畫的是 GCJ-02 地物, 而 Leaflet 按 WGS84 算「像素 -> 經緯度」。所以在
 // 高德圖層上點中的那個讀數, 其實是目標點的 GCJ-02 值; 不反算就直接存, 深圳一帶
@@ -302,7 +365,25 @@ const I18N = {
     parsed: function(n, lo, la){ return '已解析：' + (n || (lo.toFixed(4) + ', ' + la.toFixed(4))); },
     enter_place: '請輸入地名', searching: '搜尋中...',
     not_found: function(q){ return '未找到：' + q; }, search_failed: '搜尋失敗',
-    no_results: function(q){ return '無符合「' + q + '」的結果'; }
+    no_results: function(q){ return '無符合「' + q + '」的結果'; },
+    layer_group_custom: '自訂（進階）', layer_custom: '自訂圖磚', layer_custom_d: '尚未設定',
+    mc_tile_ph: '圖磚 Token（只存本機瀏覽器）', mc_route_ph: '路線 API Key（選填，另填）',
+    mc_save: '儲存', mc_test: '測試', mc_clear: '清除',
+    mc_hint: '⚠️ 請只填<b>公開（public）</b> Token——這類金鑰本就設計給瀏覽器使用，但任何人都能從這台裝置讀到它，費用與配額風險在你們的帳務端，請在供應商後台設好網址限制與用量上限。<b>絕對不要填伺服器私密金鑰</b>（Mapbox sk.／其他 secret）。本站不經手：金鑰只存在這台瀏覽器，不會上傳、不會進 URL、不會進 Git。',
+    mc_saved: '✓ 地圖設定已存本機', mc_need_key: '請先輸入 Token', mc_cleared: '已清除自訂地圖設定',
+    mc_test_ok: '✓ 圖磚可達', mc_test_fail: '✗ 圖磚載入失敗——請檢查 Token 或樣式',
+    mc_notyet: '自訂圖層尚未儲存,請先按「儲存」', mc_custom_d: function(p){ return p === 'mapbox' ? 'Mapbox 樣式圖磚' : 'MapTiler 樣式圖磚'; },
+    route_title: '路線規劃與模擬預覽', route_from: '起點（可點「取選點」）', route_to: '終點',
+    mode_walk: '步行', mode_bike: '腳踏車', mode_drive: '開車',
+    route_use_pick: '取選點', route_plan: '規劃路線', sim_speed: '速度',
+    sim_start: '開始', sim_pause: '暫停', sim_resume: '繼續', sim_reset: '重設',
+    route_hint: '路網來源：Valhalla（OSM 社群公共服務，免 Key）。填入地圖 Key 後可改用 Mapbox / MapTiler 路線。這層只是網頁預覽——不會讓 iOS 系統定位沿路移動。量大請自架或改用付費 provider。',
+    route_planning: '規劃中…', route_need_pts: '請填起點與終點', route_bad_coord: '座標格式錯——請用「lat, lon」',
+    route_failed: function(m){ return m === 'NO_ROUTE' ? '此路段沒有該模式的可行路線' : m === 'NEED_KEY' ? '該路線服務需要 API Key（到圖層選單自訂區填入）' : m === 'NET' ? '路線服務連線失敗（公共 Valhalla 可能暫時限流，稍後重試或改用自備 Key）' : '路線規劃失敗'; },
+    route_info: function(mode, km, mins){ return '✓ ' + (mode==='walking'?'步行':mode==='biking'?'腳踏車':'開車') + '路線：' + km + ' 公里 · 約 ' + mins + ' 分鐘'; },
+    route_provider: function(p){ return '（來源：' + p + '）'; },
+    sim_arrived: '✓ 抵達終點', sim_running: function(km){ return '模擬中：已走 ' + km; },
+    start_is_pick: '起點＝目前選點'
   },
   en: {
     title: 'WLOC Location Spoofer',
@@ -352,7 +433,25 @@ const I18N = {
     parsed: function(n, lo, la){ return 'Parsed: ' + (n || (lo.toFixed(4) + ', ' + la.toFixed(4))); },
     enter_place: 'Please enter a place name', searching: 'Searching...',
     not_found: function(q){ return 'Not found: ' + q; }, search_failed: 'Search failed',
-    no_results: function(q){ return 'No results for “' + q + '”'; }
+    no_results: function(q){ return 'No results for “' + q + '”'; },
+    layer_group_custom: 'Custom (advanced)', layer_custom: 'Custom tiles', layer_custom_d: 'Not configured',
+    mc_tile_ph: 'Tiles token (stored in this browser only)', mc_route_ph: 'Routing API key (optional)',
+    mc_save: 'Save', mc_test: 'Test', mc_clear: 'Clear',
+    mc_hint: '⚠️ Enter a <b>public</b> token only — these are designed for browsers, but anyone with this device can read it, and the cost/quota risk is on your account. Set URL restrictions and usage caps in the provider console. <b>Never enter a server secret key</b> (Mapbox sk. / other secrets). This site never handles it: the key stays in this browser, is not uploaded, never enters the URL or Git.',
+    mc_saved: '✓ Map settings saved locally', mc_need_key: 'Please enter a token first', mc_cleared: 'Custom map settings cleared',
+    mc_test_ok: '✓ Tiles reachable', mc_test_fail: '✗ Tile load failed — check token or style',
+    mc_notyet: 'Custom layer not saved yet — tap “Save” first', mc_custom_d: function(p){ return p === 'mapbox' ? 'Mapbox style tiles' : 'MapTiler style tiles'; },
+    route_title: 'Route planning & simulation preview', route_from: 'Start (or “Use pick”)', route_to: 'Destination',
+    mode_walk: 'Walk', mode_bike: 'Bike', mode_drive: 'Drive',
+    route_use_pick: 'Use pick', route_plan: 'Plan route', sim_speed: 'Speed',
+    sim_start: 'Start', sim_pause: 'Pause', sim_resume: 'Resume', sim_reset: 'Reset',
+    route_hint: 'Routing: Valhalla (OSM community public service, no key). Add a map key under Layers to switch to Mapbox / MapTiler routing. This is a web preview only — it does not move the iOS system location along the route. For heavy use, self-host or use a paid provider.',
+    route_planning: 'Planning…', route_need_pts: 'Please fill both start and destination', route_bad_coord: 'Bad coordinate — use “lat, lon”',
+    route_failed: function(m){ return m === 'NO_ROUTE' ? 'No route for this mode between the points' : m === 'NEED_KEY' ? 'This routing service needs an API key (add it under Layers → Custom)' : m === 'NET' ? 'Routing service unreachable (public Valhalla may be rate-limited — retry later or use your own key)' : 'Route planning failed'; },
+    route_info: function(mode, km, mins){ return '✓ ' + (mode==='walking'?'Walking':mode==='biking'?'Cycling':'Driving') + ' route: ' + km + ' km · about ' + mins + ' min'; },
+    route_provider: function(p){ return ' (via ' + p + ')'; },
+    sim_arrived: '✓ Arrived', sim_running: function(km){ return 'Simulating: ' + km + ' travelled'; },
+    start_is_pick: 'Start = current pick'
   }
 };
 
@@ -428,6 +527,23 @@ function applyI18n() {
   updateStatus();
   renderActive();
   renderFavs();
+  refreshMapRouteUI();
+}
+
+// 語言切換後修補功能A/B 的动态文案（這些位置會被 data-i18n 重置回静态預設）
+function refreshMapRouteUI() {
+  const meta = document.getElementById('routeMeta');
+  if (routeData) {
+    const km = (routeData.distance_m / 1000).toFixed(2);
+    const mins = Math.max(1, Math.round((routeData.duration_s || 0) / 60));
+    meta.textContent = t('route_info', routeData.mode, km, mins) + t('route_provider', routeData.provider);
+    document.getElementById('simPlayBtn').textContent = t(simState === 'running' ? 'sim_pause' : simState === 'paused' ? 'sim_resume' : simState === 'arrived' ? 'sim_start' : 'sim_start');
+  } else {
+    meta.textContent = t('route_hint');
+  }
+  if (mapCfg) document.getElementById('layerCustomDesc').textContent = t('mc_custom_d', mapCfg.provider);
+  renderStyleSel();
+  if (mapCfg) document.getElementById('mapStyleSel').value = mapCfg.style;
 }
 
 function setLang(l) {
@@ -488,11 +604,21 @@ const tiles = {
 let currentLayer = tiles.satellite;
 currentLayer.addTo(map);
 function switchLayer(name) {
+  if (name === 'custom' && (!mapCfg || !tiles.custom)) {
+    toggleLayerPopover(false); toast(t('mc_need_key'));
+    // 把勾選還原到實際在用的圖層,而不是硬跳到衛星
+    const curName = Object.keys(tiles).find(function(k){ return tiles[k] === currentLayer; }) || 'satellite';
+    const cur = document.querySelector('#layerPopover input[name=layer][value=' + curName + ']');
+    if (cur && !cur.disabled) cur.checked = true;
+    return;
+  }
   if (currentLayer === tiles[name]) { /* re-selecting current layer: just close menu */ toggleLayerPopover(false); return; }
   map.removeLayer(currentLayer);
   toggleLayerPopover(false);
   currentLayer = tiles[name];
+  currentLayerIsCustom = (name === 'custom');
   currentLayer.addTo(map);
+  // 高德與自訂供應商(Mapbox/MapTiler 皆 WGS84)處理不同：amap 需 GCJ 補償，其餘直接显示
   layerIsGcj = (name === 'amap');
   // 底圖座標系變了, 同一個 WGS84 點對應的螢幕位置也就變了, marker 必須重擺,
   // 否則切換圖層後它會停在舊圖源的像素位置上, 看起來像是座標被改掉了。
@@ -515,6 +641,244 @@ document.addEventListener('click', function(e){
   const p = document.getElementById('layerPopover');
   if (!p.classList.contains('hidden') && !p.contains(e.target) && !document.getElementById('layerBtn').contains(e.target)) toggleLayerPopover(false);
 });
+
+/* ---- 功能A：自訂底圖（瀏覽器公開 token，只存本機 localStorage，絕不經本站上傳） ---- */
+const MAP_CFG_KEY = 'wloc_map_cfg';
+const MAP_PROVIDERS = {
+  mapbox: {
+    styles: [
+      { id: 'streets-v12', zh: '街道', en: 'Streets' },
+      { id: 'outdoors-v12', zh: '户外', en: 'Outdoors' },
+      { id: 'satellite-v9', zh: '衛星', en: 'Satellite' }
+    ],
+    tileUrl: function(style, key, retina) {
+      return 'https://api.mapbox.com/styles/v1/' + style + '/tiles/512/{z}/{x}/{y}' + (retina ? '@2x' : '') + '?access_token=' + encodeURIComponent(key);
+    },
+    // Mapbox 瀏覽器直連官方允許 CORS；圖層 attribution 為其使用條款要求
+    attribution: '© Mapbox © OpenStreetMap'
+  },
+  maptiler: {
+    styles: [
+      { id: 'streets-v2', zh: '街道', en: 'Streets' },
+      { id: 'outdoor-v2', zh: '户外', en: 'Outdoors' },
+      { id: 'satellite-v2', zh: '衛星', en: 'Satellite' }
+    ],
+    tileUrl: function(style, key, retina) {
+      return 'https://api.maptiler.com/maps/' + style + '/{z}/{x}/{y}' + (retina ? '@2x' : '') + '.png?key=' + encodeURIComponent(key);
+    },
+    attribution: '© MapTiler © OpenStreetMap'
+  }
+};
+let mapCfg = null; // { provider, style, tileKey, routeKey } —— 只活在這個變數與 localStorage
+function loadMapCfg() {
+  try {
+    const c = JSON.parse(localStorage.getItem(MAP_CFG_KEY) || 'null');
+    if (c && MAP_PROVIDERS[c.provider] && c.tileKey) { mapCfg = c; return; }
+  } catch(e) {}
+  mapCfg = null;
+}
+function renderStyleSel() {
+  const sel = document.getElementById('mapStyleSel');
+  const p = MAP_PROVIDERS[document.getElementById('mapProviderSel').value] || MAP_PROVIDERS.mapbox;
+  // innerHTML 內容全部來自上方 MAP_PROVIDERS 常數表（非使用者輸入），無 XSS 面
+  sel.innerHTML = p.styles.map(function(s){ return '<option value="' + s.id + '">' + (lang === 'zh' ? s.zh : s.en) + '</option>'; }).join('');
+}
+function onProviderChange() {
+  renderStyleSel();
+}
+function buildCustomLayer() {
+  if (!mapCfg) return null;
+  const p = MAP_PROVIDERS[mapCfg.provider];
+  if (!p) return null;
+  return L.tileLayer(p.tileUrl(mapCfg.style, mapCfg.tileKey, false), { maxZoom: 19, attribution: p.attribution });
+}
+function applyMapCfgUI() {
+  const radio = document.getElementById('layerCustomRadio');
+  const desc = document.getElementById('layerCustomDesc');
+  // 重建自訂圖層物件（token/樣式可能已改）
+  if (tiles.custom) { map.removeLayer(tiles.custom); delete tiles.custom; }
+  if (mapCfg) {
+    radio.disabled = false;
+    desc.textContent = t('mc_custom_d', mapCfg.provider);
+    document.getElementById('mapProviderSel').value = mapCfg.provider;
+    renderStyleSel();
+    document.getElementById('mapStyleSel').value = mapCfg.style;
+    document.getElementById('mapTileKey').value = mapCfg.tileKey;
+    document.getElementById('mapRouteKey').value = mapCfg.routeKey || '';
+    tiles.custom = buildCustomLayer();
+    // 若目前正使用自訂圖層，立即掛上重建後的版本
+    if (currentLayerIsCustom) { currentLayer = tiles.custom; currentLayer.addTo(map); }
+  } else {
+    radio.disabled = true;
+    desc.textContent = t('layer_custom_d');
+    if (currentLayerIsCustom) { currentLayerIsCustom = false; map.removeLayer(tiles.custom || currentLayer); currentLayer = tiles.satellite; currentLayer.addTo(map); const sat = document.querySelector('#layerPopover input[name=layer][value=satellite]'); if (sat) sat.checked = true; }
+  }
+}
+function saveMapCfg() {
+  const provider = document.getElementById('mapProviderSel').value;
+  const style = document.getElementById('mapStyleSel').value;
+  const tileKey = document.getElementById('mapTileKey').value.trim();
+  const routeKey = document.getElementById('mapRouteKey').value.trim();
+  if (!tileKey) { toast(t('mc_need_key')); return; }
+  mapCfg = { provider: provider, style: style, tileKey: tileKey, routeKey: routeKey };
+  try { localStorage.setItem(MAP_CFG_KEY, JSON.stringify(mapCfg)); } catch(e) {}
+  applyMapCfgUI();
+  toast(t('mc_saved'));
+}
+function clearMapCfg() {
+  try { localStorage.removeItem(MAP_CFG_KEY); } catch(e) {}
+  mapCfg = null;
+  document.getElementById('mapTileKey').value = '';
+  document.getElementById('mapRouteKey').value = '';
+  applyMapCfgUI();
+  toast(t('mc_cleared'));
+}
+// 以中心點 z=12 圖磚實際載入驗證 token 可達；不發任何寫入型請求。
+function tileXY(lat, lon, z) {
+  const n = 1 << z;
+  const rad = lat * Math.PI / 180;
+  return {
+    x: Math.floor((lon + 180) / 360 * n),
+    y: Math.floor((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * n)
+  };
+}
+function testMapCfg() {
+  const provider = document.getElementById('mapProviderSel').value;
+  const style = document.getElementById('mapStyleSel').value;
+  const tileKey = document.getElementById('mapTileKey').value.trim();
+  if (!tileKey) { toast(t('mc_need_key')); return; }
+  const p = MAP_PROVIDERS[provider];
+  const t0 = (lat !== null && selected) ? tileXY(lat, lon, 12) : tileXY(25.03, 121.56, 12);
+  const url = p.tileUrl(style, tileKey, false).replace('{z}', 12).replace('{x}', t0.x).replace('{y}', t0.y);
+  const img = new Image();
+  img.onload = function(){ toast(t('mc_test_ok')); };
+  img.onerror = function(){ toast(t('mc_test_fail')); };
+  img.src = url;
+}
+
+/* ---- 功能B：路線規劃與模擬預覽（層級1；座標一律 WGS84） ---- */
+let routeMode = 'walking';
+let routeData = null;   // { coords, cum, total, provider, mode, distance_m, duration_s }
+let routeLine = null, simMarker = null;
+let simState = 'idle';  // idle | running | paused | arrived
+let simDist = 0, simLastTs = 0, simRaf = null;
+
+function parseLatLngText(s) {
+  const m = String(s || '').trim().split(/[,\s]+/).filter(Boolean);
+  if (m.length !== 2) return null;
+  const la = Number(m[0]), lo = Number(m[1]);
+  if (!isFinite(la) || !isFinite(lo) || Math.abs(la) > 90 || Math.abs(lo) > 180) return null;
+  return { lat: la, lon: lo };
+}
+function setRouteMode(mode) {
+  routeMode = mode;
+  ['Walking','Biking','Driving'].forEach(function(k){ const b = document.getElementById('mode' + k); if (b) b.classList.remove('active'); });
+  const id = mode === 'walking' ? 'modeWalking' : mode === 'biking' ? 'modeBiking' : 'modeDriving';
+  document.getElementById(id).classList.add('active');
+}
+function routeUsePick() {
+  if (!selected || lat === null) { toast(t('pick_first')); return; }
+  document.getElementById('routeFrom').value = lat.toFixed(6) + ', ' + lon.toFixed(6);
+  toast(t('start_is_pick'));
+}
+function routeProviderPlan() {
+  // 有儲存的路線 key 就用對應供應商；否則退回公共 Valhalla
+  if (mapCfg && mapCfg.routeKey) return { provider: mapCfg.provider, key: mapCfg.routeKey };
+  return { provider: 'valhalla', key: '' };
+}
+async function planRoute() {
+  const from = parseLatLngText(document.getElementById('routeFrom').value);
+  const to = parseLatLngText(document.getElementById('routeTo').value);
+  if (!from || !to) { document.getElementById('routeMeta').textContent = t('route_bad_coord'); return; }
+  const pp = routeProviderPlan();
+  document.getElementById('routeMeta').textContent = t('route_planning');
+  try {
+    const r = await fetchRoute({ provider: pp.provider, mode: routeMode, from: from, to: to, key: pp.key });
+    const cum = routeCumulative(r.coords);
+    routeData = {
+      coords: r.coords, cum: cum, total: cum[cum.length - 1],
+      provider: pp.provider, mode: routeMode, distance_m: r.distance_m, duration_s: r.duration_s
+    };
+    drawRoute();
+    const km = (r.distance_m / 1000).toFixed(2);
+    const mins = Math.max(1, Math.round((r.duration_s || 0) / 60));
+    document.getElementById('routeMeta').textContent = t('route_info', routeMode, km, mins) + t('route_provider', pp.provider);
+    document.getElementById('simPlayBtn').disabled = false;
+    document.getElementById('simResetBtn').disabled = false;
+    simReset(true);
+  } catch (e) {
+    const code = String(e && e.message || '');
+    document.getElementById('routeMeta').textContent = t('route_failed', code);
+  }
+}
+function drawRoute() {
+  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+  const disp = routeData.coords.map(function(p){ const d = toDisplay(p.lat, p.lon); return [d.lat, d.lon]; });
+  routeLine = L.polyline(disp, { color: '#2f7de1', weight: 5, opacity: 0.85 }).addTo(map);
+  map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+}
+function simSpeedFactor() { return Number(document.getElementById('simSpeed').value) || 1; }
+function simSpeedChanged() {
+  document.getElementById('simSpeedVal').textContent = simSpeedFactor().toFixed(1) + '×';
+}
+function simBaseSpeed() { return (ROUTE_MODES[routeMode] || { baseSpeed: 1.4 }).baseSpeed; }
+function simToggle() {
+  if (!routeData) return;
+  if (simState === 'arrived') { simReset(); }
+  if (simState === 'running') { simPause(); return; }
+  simStart();
+}
+function simStart() {
+  simState = 'running';
+  simLastTs = performance.now();
+  document.getElementById('simPlayBtn').textContent = t('sim_pause');
+  cancelAnimationFrame(simRaf);
+  const step = function(now) {
+    if (simState !== 'running') return;
+    const dt = (now - simLastTs) / 1000; simLastTs = now;
+    simDist += dt * simBaseSpeed() * simSpeedFactor();
+    if (simDist >= routeData.total) { simDist = routeData.total; renderSimPos(); simArrived(); return; }
+    renderSimPos();
+    simRaf = requestAnimationFrame(step);
+  };
+  simRaf = requestAnimationFrame(step);
+}
+function simPause() {
+  simState = 'paused';
+  cancelAnimationFrame(simRaf);
+  document.getElementById('simPlayBtn').textContent = t('sim_resume');
+}
+function simArrived() {
+  simState = 'arrived';
+  cancelAnimationFrame(simRaf);
+  document.getElementById('simPlayBtn').textContent = t('sim_start');
+  const el = document.getElementById('simNow');
+  el.style.display = ''; el.textContent = t('sim_arrived');
+}
+function simReset(silent) {
+  cancelAnimationFrame(simRaf);
+  simState = 'idle'; simDist = 0;
+  document.getElementById('simPlayBtn').textContent = t('sim_start');
+  const el = document.getElementById('simNow');
+  if (routeData) {
+    const p = routePositionAt(routeData.coords, routeData.cum, 0);
+    showSimPoint(p, 0, !silent);
+  } else { el.style.display = 'none'; }
+}
+function renderSimPos() {
+  const p = routePositionAt(routeData.coords, routeData.cum, simDist);
+  showSimPoint(p, simDist, true);
+}
+function showSimPoint(p, distM, live) {
+  if (!p) return;
+  const d = toDisplay(p.lat, p.lon);
+  if (!simMarker) { simMarker = L.circleMarker([d.lat, d.lon], { radius: 8, color: '#bf4520', fillColor: '#bf4520', fillOpacity: 0.9 }).addTo(map); }
+  else simMarker.setLatLng([d.lat, d.lon]);
+  if (live) map.panTo([d.lat, d.lon], { animate: true, duration: 0.3 });
+  const el = document.getElementById('simNow');
+  el.style.display = '';
+  el.textContent = t('sim_running', (distM / 1000).toFixed(2) + ' km / ' + (routeData ? (routeData.total / 1000).toFixed(2) : '0') + ' km') + ' · ' + p.lat.toFixed(5) + ', ' + p.lon.toFixed(5);
+}
 
 // marker 延遲建立: 未選點時地圖上沒有假位置, 第一次 setPos 才放上去。
 let marker = null;
@@ -963,6 +1327,10 @@ applyTheme();
 applyI18n();
 queryActive(true);
 syncSticky();
+loadMapCfg();
+renderStyleSel();
+applyMapCfgUI();
+simSpeedChanged();
 <\/script>
 </body>
 </html>`;
