@@ -76,7 +76,7 @@ function wlocRouteHandle(action, params, store, log) {
     if (action === "route-status") {
       var st = store.getItem(WLOC_ROUTE_KEY);
       if (!st || st.v !== 1) return { success: true, active: false };
-      return { success: true, active: true, mode: st.mode, speed: st.speed, mult: st.mult, t0: st.t0, pausedMs: st.pausedMs || 0, paused: !!st.pauseStart };
+      return { success: true, active: true, mode: st.mode, speed: st.speed, mult: st.mult, t0: st.t0, pausedMs: st.pausedMs || 0, paused: !!st.pauseStart, shape: st.shape };
     }
     return null; // 非 route action → 交回原邏輯
   } catch (e) {

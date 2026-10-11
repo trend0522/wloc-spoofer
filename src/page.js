@@ -1069,7 +1069,22 @@ function devSimPoll() {
       const d = await devSimApi('action=route-status');
       if (d && d.success) {
         if (!d.active) { clearInterval(devSim.poll); devSim.active = false; devSimSetState(t('dev_gone')); }
-        else { devSim.paused = !!d.paused; devSimSetState(t('dev_active', d.mode, Number(d.speed) * Number(d.mult))); }
+        else {
+          devSim.paused = !!d.paused;
+          var expect = '';
+          try {
+            // 依裝置同一時鐘推算「下一次定位請求時腳本將回傳的座標」——通道診斷用，非動畫
+            if (!d.paused) {
+              const pts = decodePolyline(d.shape, 1e6);
+              const cm = routeCumulative(pts);
+              const elapsedMs = Date.now() - d.t0 - (d.pausedMs || 0);
+              const dist = Math.min(cm[cm.length - 1], Math.max(0, elapsedMs / 1000) * d.speed * d.mult);
+              const pos = routePositionAt(pts, cm, dist);
+              if (pos) expect = ' · 下次定位預期 ' + pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5);
+            } else { expect = ' · 暫停中，位置凍結'; }
+          } catch (e) {}
+          devSimSetState(t('dev_active', d.mode, Number(d.speed) * Number(d.mult)) + expect);
+        }
       } else { devSimSetState(t('dev_status_fail'), true); }
     } catch (e) { devSimSetState(t('dev_status_fail'), true); }
     devSimRender();

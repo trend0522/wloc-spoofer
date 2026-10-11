@@ -41,7 +41,7 @@ wloc = injectOnce(
   ",r}let ze;",
   `,r}
 ${overlayRead}
-function Ze(){var r=ZeBase();try{var raw=o.getItem(WLOC_ROUTE_KEY);if(raw){var p=wlocRoutePosition(raw,Date.now());if(p){r.longitude=p.longitude;r.latitude=p.latitude;if(!p.paused)t.info("[wloc] 路線模擬 dist="+p.distM+"/"+p.totalM+"m"+(p.arrived?"(已抵達,停留終點)":"")+" lon="+p.longitude.toFixed(6)+" lat="+p.latitude.toFixed(6));}else{t.error("[wloc] 路線模擬資料未通過驗證,回落單點模式");}}}catch(e){t.error("[wloc] 路線模擬異常,回落單點模式: "+(e.message||e))}return r}let ze;`,
+function Ze(){var r=ZeBase();try{var raw=o.getItem(WLOC_ROUTE_KEY);if(raw){var p=wlocRoutePosition(raw,Date.now());if(p){r.longitude=p.longitude;r.latitude=p.latitude;var st=p.paused?"paused":p.arrived?"arrived":"running";var rq="";try{rq=String(globalThis.$request.url||"").replace(/^https?:\\/\\//,"").split(\"?\")[0].split(\"#\")[0].slice(0,42)}catch(e){}t.info("[wloc] 路線sim t="+Date.now()+" dist="+p.distM+"/"+p.totalM+"m state="+st+" lon="+p.longitude.toFixed(6)+" lat="+p.latitude.toFixed(6)+" req="+rq);}else{t.error("[wloc] 路線模擬資料未通過驗證,回落單點模式");}}}catch(e){t.error("[wloc] 路線模擬異常,回落單點模式: "+(e.message||e))}return r}let ze;`,
   "wloc:wrap-Ze"
 );
 

@@ -209,6 +209,28 @@ test("案例7：非法路線資料一律拒絕且不落存儲", () => {
   }
 });
 
+test("診斷日誌：每事件一行，含觸發請求/狀態/進度，且不落 sensitive query", () => {
+  FakeDate._now = T0 + 60000;
+  const store = makeStore();
+  runSettings(store, routeUrl());
+  const lines = [];
+  const ctx = vm.createContext({
+    $environment: { "stash-version": "3.2.5" },
+    $script: { startTime: 0 },
+    $request: { url: "https://gs-loc.apple.com/clls/wloc?token=SECRET_Q", method: "POST", headers: {} },
+    $response: { status: 200, headers: { "Content-Type": "application/octet-stream" }, body: new Uint8Array() },
+    $persistentStore: { read: (k) => store.read(k), write: (v, k) => store.write(v, k) },
+    $done() {}, Date: FakeDate, console: { log: (...a) => lines.push(String(a[0] ?? a)) },
+    setTimeout, clearTimeout, Uint8Array, ArrayBuffer,
+  });
+  vm.runInContext(wlocSrc + "\n;var OUT={Ze:Ze};", ctx);
+  vm.runInContext("Ze()", ctx);
+  const sim = lines.find(l => l.includes("路線sim"));
+  assert.ok(sim, "必須有路線sim診斷行");
+  assert.ok(sim.includes("req=gs-loc.apple.com/clls/wloc") && !sim.includes("token=SECRET_Q"), "記錄請求 host+path，但不得含 query 內容");
+  assert.ok(sim.includes("state=running") && /dist=\d+\/\d+m/.test(sim) && sim.includes("t=1760000060000"), sim);
+});
+
 test("案例7b：讀端獨立重驗——繞過寫入端直接灌壞 wloc_route 也落回單點", () => {
   FakeDate._now = T0;
   const store = makeStore();
