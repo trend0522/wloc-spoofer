@@ -56,9 +56,9 @@ fetchRoute({provider, mode, from:{lat,lon}, to:{lat,lon}, key})
   -> { coords:[{lat,lon}…], distance_m, duration_s, provider, mode }
 ```
 
-- **預設（免 Key）：FOSSGIS Valhalla**（`valhalla1.openstreetmap.de/route`，OSM 社群公共服務，CORS 開放）— costing 對映 `walking→pedestrian`、`biking→bicycle`、`driving→auto`。三种模式全部**真實支援**（不換標籤）。
+- **預設（免 Key）：FOSSGIS Valhalla**（`valhalla1.openstreetmap.de/route`，OSM 社群公共服務，CORS 開放，含 4xx 回應；22/22 連發全 200）— costing 對映 `walking→pedestrian`、`biking→bicycle`、`driving→auto`。三种模式全部**真實支援**（不換標籤）。已知服務契約上限：步行 100km／腳踏車 150km（error_code 154）、無陸路連通 442——UI 已分類顯示。
 - **Mapbox Directions**（用功能 A 的路線 key）：`mapbox/{walking|cycling|driving}`。
-- **MapTiler Directions**（OSRM 系，key 同 MapTiler）：`foot|bike|car`。
+- ~~MapTiler Directions~~：**已移除**（2026-10-11 探測：候選路徑全回 404，無鑰無法驗證端點與 profile；依「先驗證才加入」原則不啟用。MapTiler 僅保留圖磚用途）。
 - Polyline（Valhalla/GraphHopper 的 polyline6）用自寫 20 行解碼器 → 統一 GeoJSON-ish coords。
 - 注意：公共 Valhalla 有公平使用政策，頁面註明「量大請自備 provider」。
 

@@ -110,13 +110,21 @@ button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
 .mapcfg .mc-btns { display:flex; gap:6px; }
 .mapcfg .mc-btns .btn { flex:1; padding:9px 6px; font-size:13px; min-height:40px; }
 .mapcfg-hint { font-size:12px; color:var(--gray); line-height:1.45; }
-.route-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
-.route-grid label { font-size:12px; color:var(--gray); display:flex; flex-direction:column; gap:4px; }
+.route-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
+.route-grid label { font-size:12px; color:var(--gray); display:flex; flex-direction:column; gap:4px; min-width:0; } /* min-width:0: grid 子項預設 min-content 下限會撐破窄屏 */
 .route-grid input { padding:9px 10px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:var(--bg); color:var(--text); min-width:0; }
+.rg-head { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.pin-btn { border:1px solid var(--line); background:var(--chip); color:var(--text); font-size:11px; font-weight:600; border-radius:7px; padding:4px 8px; min-height:28px; cursor:pointer; white-space:nowrap; }
+.pin-btn.armed { background:var(--blue); border-color:var(--blue); color:#fff; }
+.route-tools { display:flex; gap:6px; margin-bottom:10px; }
 .mode-row { display:flex; gap:6px; margin-bottom:10px; }
-.mode-btn { flex:1; padding:9px 4px; font-size:13px; font-weight:600; border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:9px; cursor:pointer; min-height:40px; }
+.mode-btn { flex:1; padding:9px 4px; font-size:13px; font-weight:600; border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:9px; cursor:pointer; min-height:44px; }
 .mode-btn.active { background:color-mix(in srgb, var(--blue) 16%, var(--chip)); border-color:var(--blue); color:var(--blue); }
 .route-meta { font-size:13px; color:var(--gray); margin-bottom:8px; line-height:1.5; }
+.route-meta.is-error { color:var(--red, #c0392b); }
+.route-meta.is-ok { color:var(--green, #1e8e4e); }
+#routePickHint { font-size:12px; color:var(--blue); }
+@media(max-width:480px) { .route-tools .btn { padding:10px 4px; font-size:12px; } }
 .sim-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
 .sim-row input[type=range] { flex:1; accent-color:var(--blue); }
 .sim-row .sim-km { font-family:"SF Mono",monospace; font-size:12px; color:var(--gray); white-space:nowrap; }
@@ -238,19 +246,24 @@ button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
   <div class="card">
     <h3 data-i18n="route_title">路線規劃與模擬預覽</h3>
     <div class="route-grid">
-      <label><span data-i18n="route_from">起點（可點「取選點」）</span><input id="routeFrom" type="text" inputmode="decimal" placeholder="lat, lon" /></label>
-      <label><span data-i18n="route_to">終點</span><input id="routeTo" type="text" inputmode="decimal" placeholder="lat, lon" /></label>
+      <label><span class="rg-head"><span data-i18n="route_from">起點</span><button type="button" class="pin-btn" id="pickFromBtn" data-i18n="route_pick_btn" onclick="armEndpoint('from')">圖上點</button></span><input id="routeFrom" type="text" inputmode="decimal" placeholder="lat, lon" autocomplete="off" /></label>
+      <label><span class="rg-head"><span data-i18n="route_to">終點</span><button type="button" class="pin-btn" id="pickToBtn" data-i18n="route_pick_btn" onclick="armEndpoint('to')">圖上點</button></span><input id="routeTo" type="text" inputmode="decimal" placeholder="lat, lon" autocomplete="off" /></label>
+    </div>
+    <div class="route-tools">
+      <button type="button" class="btn btn-sm btn-secondary" style="flex:1" data-i18n="route_swap" onclick="swapEndpoints()">交換起終</button>
+      <button type="button" class="btn btn-sm btn-secondary" style="flex:1" data-i18n="route_clear" onclick="clearEndpoints()">清除</button>
+      <button type="button" class="btn btn-sm btn-primary" style="flex:2" data-i18n="route_plan" onclick="planRoute()">規劃路線</button>
     </div>
     <div class="mode-row" role="group" aria-label="交通方式">
       <button type="button" class="mode-btn active" id="modeWalking" data-i18n="mode_walk" onclick="setRouteMode('walking')">步行</button>
       <button type="button" class="mode-btn" id="modeBiking" data-i18n="mode_bike" onclick="setRouteMode('biking')">腳踏車</button>
       <button type="button" class="mode-btn" id="modeDriving" data-i18n="mode_drive" onclick="setRouteMode('driving')">開車</button>
     </div>
-    <div class="sim-row">
-      <button type="button" class="btn btn-sm btn-secondary" style="flex:none" data-i18n="route_use_pick" onclick="routeUsePick()">取選點</button>
-      <button type="button" class="btn btn-sm btn-primary" style="flex:none" data-i18n="route_plan" onclick="planRoute()">規劃路線</button>
+    <div class="route-meta" id="routePickHint" style="display:none"></div>
+    <div class="route-meta" id="routeMeta" aria-live="polite" data-i18n="route_hint">路網來源：Valhalla（OSM 社群公共服務，免 Key）。填入地圖 Key 後可改用 Mapbox 路線服務。這層只是網頁預覽——不會讓 iOS 系統定位沿路移動。</div>
+    <div class="route-meta" id="routeRetry" style="display:none">
+      <button type="button" class="btn btn-sm btn-secondary" id="routeRetryBtn" data-i18n="route_retry" onclick="planRoute()">重試</button>
     </div>
-    <div class="route-meta" id="routeMeta" aria-live="polite" data-i18n="route_hint">路網來源：Valhalla（OSM 社群公共服務，免 Key）。填入地圖 Key 後可改用 Mapbox / MapTiler 路線服務。這層只是網頁預覽——不會讓 iOS 系統定位沿路移動。</div>
     <div class="sim-row">
       <span style="font-size:12px;color:var(--gray)" data-i18n="sim_speed">速度</span>
       <input id="simSpeed" type="range" min="0.25" max="8" step="0.25" value="1" aria-label="模擬速度倍率" oninput="simSpeedChanged()" />
@@ -373,17 +386,23 @@ const I18N = {
     mc_saved: '✓ 地圖設定已存本機', mc_need_key: '請先輸入 Token', mc_cleared: '已清除自訂地圖設定',
     mc_test_ok: '✓ 圖磚可達', mc_test_fail: '✗ 圖磚載入失敗——請檢查 Token 或樣式',
     mc_notyet: '自訂圖層尚未儲存,請先按「儲存」', mc_custom_d: function(p){ return p === 'mapbox' ? 'Mapbox 樣式圖磚' : 'MapTiler 樣式圖磚'; },
-    route_title: '路線規劃與模擬預覽', route_from: '起點（可點「取選點」）', route_to: '終點',
+    route_title: '路線規劃與模擬預覽', route_from: '起點', route_to: '終點',
+    route_pick_btn: '圖上點', route_pick_on: function(w){ return '點地圖設定' + w + '（再按一次取消）'; },
+    route_pick_from: '起點', route_pick_to: '終點',
+    route_swap: '交換起終', route_clear: '清除', route_retry: '重試',
     mode_walk: '步行', mode_bike: '腳踏車', mode_drive: '開車',
-    route_use_pick: '取選點', route_plan: '規劃路線', sim_speed: '速度',
+    route_plan: '規劃路線', sim_speed: '速度',
     sim_start: '開始', sim_pause: '暫停', sim_resume: '繼續', sim_reset: '重設',
-    route_hint: '路網來源：Valhalla（OSM 社群公共服務，免 Key）。填入地圖 Key 後可改用 Mapbox / MapTiler 路線。這層只是網頁預覽——不會讓 iOS 系統定位沿路移動。量大請自架或改用付費 provider。',
-    route_planning: '規劃中…', route_need_pts: '請填起點與終點', route_bad_coord: '座標格式錯——請用「lat, lon」',
-    route_failed: function(m){ return m === 'NO_ROUTE' ? '此路段沒有該模式的可行路線' : m === 'NEED_KEY' ? '該路線服務需要 API Key（到圖層選單自訂區填入）' : m === 'NET' ? '路線服務連線失敗（公共 Valhalla 可能暫時限流，稍後重試或改用自備 Key）' : '路線規劃失敗'; },
+    route_hint: '路網來源：Valhalla（OSM 社群公共服務，免 Key；步行 100km、腳踏車 150km 內）。填入地圖 Key 後可改用 Mapbox 路線（其 walking/cycling/driving 為真實 profile）。這層只是網頁預覽——不會讓 iOS 系統定位沿路移動。',
+    route_planning: '規劃中…（瞬時失敗會自動重試一次）', route_need_pts: '請先填起點與終點（可「圖上點」或貼上 lat, lon）', route_bad_coord: function(w){ return w + '座標格式錯誤——請用「lat, lon」，緯度 ±90、經度 ±180'; },
+    route_bad_from: '起點', route_bad_to: '終點',
+    route_failed: function(m){ return m === 'NO_ROUTE' ? '✗ 沒有可行路線：兩點間對這個交通方式找不到路（例如跨海無陸路）。可換種交通方式，或檢查兩點位置。' : m === 'TOO_FAR' ? '✗ 超過公共服務單次距離上限（步行 100km／腳踏車 150km）。請改用 Mapbox 路線 Key，或分段規劃。' : m === 'NEED_KEY' ? '✗ 需要路線 API Key：在「圖層 → 自訂（進階）」填路線 Key。' : m === 'BAD_KEY' ? '✗ 路線 Key 被供應商拒絕（invalid／未授權）。請到圖層自訂區檢查或改用免 Key 的 Valhalla（清空路線 Key）。' : m === 'SERVICE' ? '✗ 路線服務暫時不可用（限流或 5xx），已自動重試一次。稍後再按重試，或改用自備 Mapbox Key。' : m === 'NET' ? '✗ 連線不到路線服務（網路或瀏覽器阻擋）。檢查網路後重試。' : m === 'BAD_REQ' ? '✗ 請求被服務拒絕（格式或參數）。請檢查起終點後重試。' : '✗ 路線規劃失敗'; },
+    route_failed_suffix: '（起終點與模式已保留）',
     route_info: function(mode, km, mins){ return '✓ ' + (mode==='walking'?'步行':mode==='biking'?'腳踏車':'開車') + '路線：' + km + ' 公里 · 約 ' + mins + ' 分鐘'; },
     route_provider: function(p){ return '（來源：' + p + '）'; },
     sim_arrived: '✓ 抵達終點', sim_running: function(km){ return '模擬中：已走 ' + km; },
-    start_is_pick: '起點＝目前選點'
+    endpoints_cleared: '已清除起終點', swapped: '已交換起終點',
+    route_note_maptiler: '（路線 Key 是 MapTiler，但其路線端點無法驗證可用，已改用免 Key 的 Valhalla）'
   },
   en: {
     title: 'WLOC Location Spoofer',
@@ -441,17 +460,23 @@ const I18N = {
     mc_saved: '✓ Map settings saved locally', mc_need_key: 'Please enter a token first', mc_cleared: 'Custom map settings cleared',
     mc_test_ok: '✓ Tiles reachable', mc_test_fail: '✗ Tile load failed — check token or style',
     mc_notyet: 'Custom layer not saved yet — tap “Save” first', mc_custom_d: function(p){ return p === 'mapbox' ? 'Mapbox style tiles' : 'MapTiler style tiles'; },
-    route_title: 'Route planning & simulation preview', route_from: 'Start (or “Use pick”)', route_to: 'Destination',
+    route_title: 'Route planning & simulation preview', route_from: 'Start', route_to: 'Destination',
+    route_pick_btn: 'Pick', route_pick_on: function(w){ return 'Tap the map to set ' + w + ' (tap again to cancel)'; },
+    route_pick_from: 'the start', route_pick_to: 'the destination',
+    route_swap: 'Swap', route_clear: 'Clear', route_retry: 'Retry',
     mode_walk: 'Walk', mode_bike: 'Bike', mode_drive: 'Drive',
-    route_use_pick: 'Use pick', route_plan: 'Plan route', sim_speed: 'Speed',
+    route_plan: 'Plan route', sim_speed: 'Speed',
     sim_start: 'Start', sim_pause: 'Pause', sim_resume: 'Resume', sim_reset: 'Reset',
-    route_hint: 'Routing: Valhalla (OSM community public service, no key). Add a map key under Layers to switch to Mapbox / MapTiler routing. This is a web preview only — it does not move the iOS system location along the route. For heavy use, self-host or use a paid provider.',
-    route_planning: 'Planning…', route_need_pts: 'Please fill both start and destination', route_bad_coord: 'Bad coordinate — use “lat, lon”',
-    route_failed: function(m){ return m === 'NO_ROUTE' ? 'No route for this mode between the points' : m === 'NEED_KEY' ? 'This routing service needs an API key (add it under Layers → Custom)' : m === 'NET' ? 'Routing service unreachable (public Valhalla may be rate-limited — retry later or use your own key)' : 'Route planning failed'; },
+    route_hint: 'Routing: Valhalla (OSM community service, no key; up to 100 km walking / 150 km cycling per request). Add a map key under Layers to use Mapbox routing (real walking/cycling/driving profiles). This is a web preview only — it does not move the iOS system location along the route.',
+    route_planning: 'Planning… (transient failures retry once automatically)', route_need_pts: 'Fill both start and destination (use “Pick” or paste lat, lon)', route_bad_coord: function(w){ return w + 'coordinate is invalid — use “lat, lon”, latitude ±90, longitude ±180'; },
+    route_bad_from: 'Start ', route_bad_to: 'Destination ',
+    route_failed: function(m){ return m === 'NO_ROUTE' ? '✗ No feasible route: no path for this mode between the points (e.g. sea crossing without land). Try another mode, or check the points.' : m === 'TOO_FAR' ? '✗ Exceeds the public service per-request limit (100 km walking / 150 km cycling). Use a Mapbox routing key, or split the trip.' : m === 'NEED_KEY' ? '✗ A routing API key is required: add it under Layers → Custom (advanced).' : m === 'BAD_KEY' ? '✗ The routing key was rejected by the provider (invalid / unauthorized). Check it under Layers → Custom, or clear it to use free Valhalla.' : m === 'SERVICE' ? '✗ Routing service temporarily unavailable (rate-limited or 5xx) — one automatic retry already failed. Retry later, or use your own Mapbox key.' : m === 'NET' ? '✗ Cannot reach the routing service (network or browser blocked it). Check your connection and retry.' : m === 'BAD_REQ' ? '✗ The service rejected the request (format or parameters). Check the points and retry.' : '✗ Route planning failed'; },
+    route_failed_suffix: ' (start, destination and mode kept)',
     route_info: function(mode, km, mins){ return '✓ ' + (mode==='walking'?'Walking':mode==='biking'?'Cycling':'Driving') + ' route: ' + km + ' km · about ' + mins + ' min'; },
     route_provider: function(p){ return ' (via ' + p + ')'; },
     sim_arrived: '✓ Arrived', sim_running: function(km){ return 'Simulating: ' + km + ' travelled'; },
-    start_is_pick: 'Start = current pick'
+    endpoints_cleared: 'Start and destination cleared', swapped: 'Start and destination swapped',
+    route_note_maptiler: ' (routing key is MapTiler, but its directions endpoint could not be verified — fell back to free Valhalla)'
   }
 };
 
@@ -756,42 +781,94 @@ function testMapCfg() {
   img.src = url;
 }
 
-/* ---- 功能B：路線規劃與模擬預覽（層級1；座標一律 WGS84） ---- */
+/* ---- 功能B：路線規劃與模擬預覽（層級1；座標一律 WGS84） ----
+   parseLatLngText / fetchRoute / routeCumulative / routePositionAt 由
+   src/route-core.js 注入（頁面與 vm 測試共用同一實作，無鏡像漂移）。 */
 let routeMode = 'walking';
 let routeData = null;   // { coords, cum, total, provider, mode, distance_m, duration_s }
 let routeLine = null, simMarker = null;
 let simState = 'idle';  // idle | running | paused | arrived
 let simDist = 0, simLastTs = 0, simRaf = null;
+let routePickArm = null; // null | 'from' | 'to' —— 地圖點擊要寫入哪個欄位
 
-function parseLatLngText(s) {
-  const m = String(s || '').trim().split(/[,\s]+/).filter(Boolean);
-  if (m.length !== 2) return null;
-  const la = Number(m[0]), lo = Number(m[1]);
-  if (!isFinite(la) || !isFinite(lo) || Math.abs(la) > 90 || Math.abs(lo) > 180) return null;
-  return { lat: la, lon: lo };
-}
 function setRouteMode(mode) {
   routeMode = mode;
   ['Walking','Biking','Driving'].forEach(function(k){ const b = document.getElementById('mode' + k); if (b) b.classList.remove('active'); });
   const id = mode === 'walking' ? 'modeWalking' : mode === 'biking' ? 'modeBiking' : 'modeDriving';
   document.getElementById(id).classList.add('active');
+  // 切換模式保留起終點；已有路線則自動重劃（同兩點、新 profile）
+  if (routeData) planRoute();
 }
-function routeUsePick() {
-  if (!selected || lat === null) { toast(t('pick_first')); return; }
-  document.getElementById('routeFrom').value = lat.toFixed(6) + ', ' + lon.toFixed(6);
-  toast(t('start_is_pick'));
+function armEndpoint(which) {
+  routePickArm = (routePickArm === which) ? null : which;
+  document.getElementById('pickFromBtn').classList.toggle('armed', routePickArm === 'from');
+  document.getElementById('pickToBtn').classList.toggle('armed', routePickArm === 'to');
+  const hint = document.getElementById('routePickHint');
+  if (routePickArm) { hint.style.display = ''; hint.textContent = t('route_pick_on', t(routePickArm === 'from' ? 'route_pick_from' : 'route_pick_to')); }
+  else { hint.style.display = 'none'; hint.textContent = ''; }
 }
+function applyArmedPoint(wLat, wLon) {
+  const el = document.getElementById(routePickArm === 'to' ? 'routeTo' : 'routeFrom');
+  el.value = wLat.toFixed(6) + ', ' + wLon.toFixed(6);
+  endpointMarker(routePickArm, wLat, wLon);
+  armEndpoint(routePickArm); // 設完自動解除武裝，避免誤點覆蓋
+  el.dispatchEvent(new Event('input'));
+}
+function endpointMarker(which, la, lo) {
+  const key = which === 'to' ? 'toPtMarker' : 'fromPtMarker';
+  const d = toDisplay(la, lo);
+  if (!window[key]) window[key] = L.circleMarker([d.lat, d.lon], { radius: 6, weight: 2, color: which === 'to' ? '#bf4520' : '#1e8e4e', fillColor: which === 'to' ? '#bf4520' : '#1e8e4e', fillOpacity: 0.8 }).addTo(map);
+  else window[key].setLatLng([d.lat, d.lon]);
+}
+function swapEndpoints() {
+  const a = document.getElementById('routeFrom'), b = document.getElementById('routeTo');
+  const t0 = a.value; a.value = b.value; b.value = t0;
+  const fa = parseLatLngText(a.value), fb = parseLatLngText(b.value);
+  if (fa) endpointMarker('from', fa.lat, fa.lon);
+  if (fb) endpointMarker('to', fb.lat, fb.lon);
+  toast(t('swapped'));
+  if (routeData) planRoute();
+}
+function clearEndpoints() {
+  document.getElementById('routeFrom').value = '';
+  document.getElementById('routeTo').value = '';
+  ['fromPtMarker','toPtMarker'].forEach(function(k){ if (window[k]) { map.removeLayer(window[k]); window[k] = null; } });
+  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+  if (simMarker) { map.removeLayer(simMarker); simMarker = null; }
+  routeData = null; simState = 'idle'; simDist = 0;
+  document.getElementById('simPlayBtn').disabled = true;
+  document.getElementById('simResetBtn').disabled = true;
+  document.getElementById('simNow').style.display = 'none';
+  document.getElementById('routeRetry').style.display = 'none';
+  routeSetMeta(t('route_hint'), '');
+  if (routePickArm) armEndpoint(routePickArm);
+  toast(t('endpoints_cleared'));
+}
+// 路線服務 provider 選擇：圖磚 key ≠ 路線 key，且只有 Mapbox 的路線端點經實測驗證。
+// MapTiler 路線端點探測全 404（無法驗證），所以 provider==='maptiler' 時退回 Valhalla，
+// 並把原因顯示出來——不靜默改用未驗證的服務。
 function routeProviderPlan() {
-  // 有儲存的路線 key 就用對應供應商；否則退回公共 Valhalla
-  if (mapCfg && mapCfg.routeKey) return { provider: mapCfg.provider, key: mapCfg.routeKey };
+  if (mapCfg && mapCfg.routeKey) {
+    if (mapCfg.provider === 'mapbox') return { provider: 'mapbox', key: mapCfg.routeKey };
+    return { provider: 'valhalla', key: '', note: t('route_note_maptiler') };
+  }
   return { provider: 'valhalla', key: '' };
 }
+function routeSetMeta(msg, cls) {
+  const el = document.getElementById('routeMeta');
+  el.textContent = msg;
+  el.className = 'route-meta' + (cls ? ' ' + cls : '');
+}
 async function planRoute() {
-  const from = parseLatLngText(document.getElementById('routeFrom').value);
-  const to = parseLatLngText(document.getElementById('routeTo').value);
-  if (!from || !to) { document.getElementById('routeMeta').textContent = t('route_bad_coord'); return; }
+  const rawFrom = document.getElementById('routeFrom').value, rawTo = document.getElementById('routeTo').value;
+  const from = parseLatLngText(rawFrom), to = parseLatLngText(rawTo);
+  if (!from && !to) { routeSetMeta(t('route_need_pts'), 'is-error'); document.getElementById('routeRetry').style.display = 'none'; return; }
+  if (!from) { routeSetMeta(t('route_bad_coord', t('route_bad_from')), 'is-error'); document.getElementById('routeRetry').style.display = 'none'; return; }
+  if (!to) { routeSetMeta(t('route_bad_coord', t('route_bad_to')), 'is-error'); document.getElementById('routeRetry').style.display = 'none'; return; }
+  endpointMarker('from', from.lat, from.lon); endpointMarker('to', to.lat, to.lon);
   const pp = routeProviderPlan();
-  document.getElementById('routeMeta').textContent = t('route_planning');
+  routeSetMeta(t('route_planning'), '');
+  document.getElementById('routeRetry').style.display = 'none';
   try {
     const r = await fetchRoute({ provider: pp.provider, mode: routeMode, from: from, to: to, key: pp.key });
     const cum = routeCumulative(r.coords);
@@ -802,13 +879,21 @@ async function planRoute() {
     drawRoute();
     const km = (r.distance_m / 1000).toFixed(2);
     const mins = Math.max(1, Math.round((r.duration_s || 0) / 60));
-    document.getElementById('routeMeta').textContent = t('route_info', routeMode, km, mins) + t('route_provider', pp.provider);
+    routeSetMeta(t('route_info', routeMode, km, mins) + t('route_provider', pp.provider) + (pp.note || ''), 'is-ok');
     document.getElementById('simPlayBtn').disabled = false;
     document.getElementById('simResetBtn').disabled = false;
     simReset(true);
   } catch (e) {
     const code = String(e && e.message || '');
-    document.getElementById('routeMeta').textContent = t('route_failed', code);
+    // 失敗保留起終點、模式與其他設定；只清掉路線圖形
+    routeData = null;
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    if (simMarker) { map.removeLayer(simMarker); simMarker = null; }
+    document.getElementById('simPlayBtn').disabled = true;
+    document.getElementById('simResetBtn').disabled = true;
+    document.getElementById('simNow').style.display = 'none';
+    routeSetMeta(t('route_failed', code) + t('route_failed_suffix'), 'is-error');
+    document.getElementById('routeRetry').style.display = '';
   }
 }
 function drawRoute() {
@@ -888,11 +973,15 @@ map.on('click', e => { setPosFromDisplay(e.latlng.lat, e.latlng.lng); });
 
 function setPosFromDisplay(dLat, dLon) {
   const w = fromDisplay(dLat, dLon);
+  // 路線「圖上點」武裝中：點位寫入起/終欄而非目標選點
+  if (routePickArm) { applyArmedPoint(w.lat, w.lon); return; }
   setPos(w.lat, w.lon);
 }
 
 // 參數恆為 WGS84。
 function setPos(newLat, newLon) {
+  // 路線「圖上點」武裝中：搜尋/解析/定位等一切落點都寫入起/終欄（地址搜尋因此免費到位）
+  if (routePickArm) { applyArmedPoint(newLat, newLon); return; }
   lat = newLat; lon = newLon; selected = true;
   const d = toDisplay(lat, lon);
   if (!marker) {
