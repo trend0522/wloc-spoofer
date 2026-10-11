@@ -234,7 +234,10 @@ const LANG_KEY = 'wloc_lang';
 // lat/lon 恒为 WGS84 —— 这是写进设备、也是 wloc 唯一认的坐标系。
 // 底图可能是 GCJ-02 图源, 屏幕上的经纬度与它并不相等, 换算集中在 toDisplay/
 // fromDisplay 两个函数里, 其它地方一律不碰。
-let lat = 22.544577, lon = 113.94114;
+// 初始不選點(null)：頁面不再拿深圳預設點假裝是使用者位置; marker 在第一次 setPos 時才建。
+// 注意：模組 argument 的深圳預設值不能改 —— dist/wloc.js 靠「參數等於這組預設且無持久化」
+// 判定透傳模式(回真實定位)，改了就變成未儲存也被偽造。
+let lat = null, lon = null;
 let selected = false;
 let activeLon = null, activeLat = null, activeAcc = null, activeStatus = 'querying';
 let firstFail = false; // 首次載入查詢失敗 = 待機語氣（不出橫幅）
@@ -473,7 +476,7 @@ function renderActive() {
   }
 }
 
-const map = L.map('map').setView([lat, lon], 13); map.zoomControl.setPosition('bottomright');
+const map = L.map('map').setView([25.033964, 121.564556], 13); map.zoomControl.setPosition('bottomright'); // 台北101：純初始視窗, 不是選點
 const tiles = {
   satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19, attribution:'ArcGIS'}),
   wgs84: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {maxZoom:19, attribution:'ArcGIS WGS84'}),
@@ -493,9 +496,11 @@ function switchLayer(name) {
   layerIsGcj = (name === 'amap');
   // 底图坐标系变了, 同一个 WGS84 点对应的屏幕位置也就变了, marker 必须重摆,
   // 否则切换图层后它会停在旧图源的像素位置上, 看起来像是坐标被改掉了。
-  const d = toDisplay(lat, lon);
-  marker.setLatLng([d.lat, d.lon]);
-  map.setView([d.lat, d.lon], map.getZoom());
+  if (marker) {
+    const d = toDisplay(lat, lon);
+    marker.setLatLng([d.lat, d.lon]);
+    map.setView([d.lat, d.lon], map.getZoom());
+  }
   document.querySelectorAll('#layerPopover input').forEach(r => { r.checked = (r.value === name); });
 }
 /* ---- Layer popover (P1a): one button, grouped menu; layer objects/behaviour unchanged ---- */
@@ -511,10 +516,10 @@ document.addEventListener('click', function(e){
   if (!p.classList.contains('hidden') && !p.contains(e.target) && !document.getElementById('layerBtn').contains(e.target)) toggleLayerPopover(false);
 });
 
-let marker = L.marker([lat, lon], {draggable:true}).addTo(map);
+// marker 延遲建立: 未選點時地圖上沒有假位置, 第一次 setPos 才放上去。
+let marker = null;
 
 // 地图交互给出的都是「屏幕坐标系」的读数, 一律先过 fromDisplay 再进 setPos。
-marker.on('dragend', e => { const p=e.target.getLatLng(); setPosFromDisplay(p.lat, p.lng); });
 map.on('click', e => { setPosFromDisplay(e.latlng.lat, e.latlng.lng); });
 
 function setPosFromDisplay(dLat, dLon) {
@@ -526,7 +531,12 @@ function setPosFromDisplay(dLat, dLon) {
 function setPos(newLat, newLon) {
   lat = newLat; lon = newLon; selected = true;
   const d = toDisplay(lat, lon);
-  marker.setLatLng([d.lat, d.lon]);
+  if (!marker) {
+    marker = L.marker([d.lat, d.lon], {draggable:true}).addTo(map);
+    marker.on('dragend', e => { const p=e.target.getLatLng(); setPosFromDisplay(p.lat, p.lng); });
+  } else {
+    marker.setLatLng([d.lat, d.lon]);
+  }
   updateCoords();
 }
 
