@@ -1,13 +1,13 @@
-// 浏览器端 GCJ-02 换算, 以字符串形式注入选点页面。
+// 瀏覽器端 GCJ-02 換算, 以字串形式注入選點頁面。
 //
-// 为什么是字符串而不是正常的 export: page.js 整体是一个模板串, 页面里的 JS 跑在
-// 浏览器, 而 parse.js 的实现跑在 Worker 里 —— 地图点击事件拿不到服务端函数。
-// 用字符串注入而不是 fn.toString(), 是因为部署走 `wrangler deploy --minify`,
-// 压缩会重命名标识符, toString() 出来的代码引用的是压缩后的名字, 注入到页面的
-// 新作用域里会全部对不上。字符串字面量的内容 esbuild 不会碰。
+// 為什麼是字串而不是正常的 export: page.js 整體是一個模板串, 頁面裡的 JS 跑在
+// 瀏覽器, 而 parse.js 的實現跑在 Worker 裡 —— 地圖點擊事件拿不到伺服器端函式。
+// 用字串注入而不是 fn.toString(), 是因為部署走 `wrangler deploy --minify`,
+// 壓縮會重命名識別符, toString() 出來的程式碼引用的是壓縮後的名字, 注入到頁面的
+// 新作用域裡會全部對不上。字串字面量的內容 esbuild 不會碰。
 //
-// 这是 parse.js 中同名函数的镜像。test/parse.test.mjs 会在多个采样点上逐一比对
-// 两份实现的输出, 任何一边改了另一边没跟上, 测试立刻变红。
+// 這是 parse.js 中同名函式的鏡像。test/parse.test.mjs 會在多個採樣點上逐一比對
+// 兩份實現的輸出, 任何一邊改了另一邊沒跟上, 測試立刻變紅。
 export const GCJ_BROWSER_JS = `
 var GCJ_A = 6378245.0, GCJ_EE = 0.00669342162296594323;
 function gcjOutOfChina(lng, la) {

@@ -10,11 +10,11 @@ export function getPageHtml() {
 <title>WLOC 虛擬定位</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="WLOC">
-<!-- 内联图标: 没有它浏览器每次加载都会去要 /favicon.ico 并拿到 404 -->
+<!-- 內聯圖標: 沒有它瀏覽器每次載入都會去要 /favicon.ico 並拿到 404 -->
 <script>try{var _th=localStorage.getItem('theme');if(_th==='dark'||_th==='light')document.documentElement.setAttribute('data-theme',_th);}catch(e){}<\/script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%93%8D%3C/text%3E%3C/svg%3E">
-<!-- integrity 为 Leaflet 官方在 leafletjs.com/download.html 公布的 SRI 值,
-     可自行核对。CDN 被篡改时浏览器会拒绝执行, 下面的 typeof L 检查会给出提示。 -->
+<!-- integrity 為 Leaflet 官方在 leafletjs.com/download.html 公佈的 SRI 值,
+     可自行核對。CDN 被篡改時瀏覽器會拒絕執行, 下面的 typeof L 檢查會給出提示。 -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous"/>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
@@ -118,7 +118,7 @@ button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
 @media(max-width:768px) { #stickyBar { display:flex; } .panel { padding-bottom:120px; } }
 @media(min-width:769px) { #stickyBar { display:none !important; } }
 @media(max-width:480px) { #map { height:44vh; } .panel { padding:12px 12px 120px; } }
-@media(max-width:768px) { /* sticky bar 接管座標/半徑/儲存, 卡內不重複出现 */ .radius-row { display:none; } #saveBtn { display:none; } }
+@media(max-width:768px) { /* sticky bar 接管座標/半徑/儲存, 卡內不重複出現 */ .radius-row { display:none; } #saveBtn { display:none; } }
 </style>
 </head>
 <body>
@@ -231,9 +231,9 @@ ${GCJ_BROWSER_JS}
 const SAVE_API = 'https://gs-loc.apple.com/wloc-settings/save';
 const FAV_KEY = 'wloc_favorites';
 const LANG_KEY = 'wloc_lang';
-// lat/lon 恒为 WGS84 —— 这是写进设备、也是 wloc 唯一认的坐标系。
-// 底图可能是 GCJ-02 图源, 屏幕上的经纬度与它并不相等, 换算集中在 toDisplay/
-// fromDisplay 两个函数里, 其它地方一律不碰。
+// lat/lon 恆為 WGS84 —— 這是寫進設備、也是 wloc 唯一認的座標系。
+// 底圖可能是 GCJ-02 圖源, 螢幕上的經緯度與它並不相等, 換算集中在 toDisplay/
+// fromDisplay 兩個函式裡, 其它地方一律不碰。
 // 初始不選點(null)：頁面不再拿深圳預設點假裝是使用者位置; marker 在第一次 setPos 時才建。
 // 注意：模組 argument 的深圳預設值不能改 —— dist/wloc.js 靠「參數等於這組預設且無持久化」
 // 判定透傳模式(回真實定位)，改了就變成未儲存也被偽造。
@@ -245,10 +245,10 @@ let savedLon = null, savedLat = null, savedTimeStr = '';
 let saveTimer = null;
 let layerIsGcj = false;
 
-// 高德瓦片画的是 GCJ-02 地物, 而 Leaflet 按 WGS84 算「像素 -> 经纬度」。所以在
-// 高德图层上点中的那个读数, 其实是目标点的 GCJ-02 值; 不反算就直接存, 深圳一带
-// 会偏 500 米左右 —— 对一个定位工具来说这是致命的。反过来, 要把一个 WGS84 点
-// 画在高德图层上, 得先正算成 GCJ-02, 否则 marker 会落在错误的楼上。
+// 高德瓦片畫的是 GCJ-02 地物, 而 Leaflet 按 WGS84 算「像素 -> 經緯度」。所以在
+// 高德圖層上點中的那個讀數, 其實是目標點的 GCJ-02 值; 不反算就直接存, 深圳一帶
+// 會偏 500 米左右 —— 對一個定位工具來說這是致命的。反過來, 要把一個 WGS84 點
+// 畫在高德圖層上, 得先正算成 GCJ-02, 否則 marker 會落在錯誤的樓上。
 function toDisplay(la, lo) { return layerIsGcj ? wgs84ToGcj02(la, lo) : { lat: la, lon: lo }; }
 function fromDisplay(la, lo) { return layerIsGcj ? gcj02ToWgs84(la, lo) : { lat: la, lon: lo }; }
 
@@ -494,8 +494,8 @@ function switchLayer(name) {
   currentLayer = tiles[name];
   currentLayer.addTo(map);
   layerIsGcj = (name === 'amap');
-  // 底图坐标系变了, 同一个 WGS84 点对应的屏幕位置也就变了, marker 必须重摆,
-  // 否则切换图层后它会停在旧图源的像素位置上, 看起来像是坐标被改掉了。
+  // 底圖座標系變了, 同一個 WGS84 點對應的螢幕位置也就變了, marker 必須重擺,
+  // 否則切換圖層後它會停在舊圖源的像素位置上, 看起來像是座標被改掉了。
   if (marker) {
     const d = toDisplay(lat, lon);
     marker.setLatLng([d.lat, d.lon]);
@@ -519,7 +519,7 @@ document.addEventListener('click', function(e){
 // marker 延遲建立: 未選點時地圖上沒有假位置, 第一次 setPos 才放上去。
 let marker = null;
 
-// 地图交互给出的都是「屏幕坐标系」的读数, 一律先过 fromDisplay 再进 setPos。
+// 地圖交互給出的都是「螢幕座標系」的讀數, 一律先過 fromDisplay 再進 setPos。
 map.on('click', e => { setPosFromDisplay(e.latlng.lat, e.latlng.lng); });
 
 function setPosFromDisplay(dLat, dLon) {
@@ -527,7 +527,7 @@ function setPosFromDisplay(dLat, dLon) {
   setPos(w.lat, w.lon);
 }
 
-// 参数恒为 WGS84。
+// 參數恆為 WGS84。
 function setPos(newLat, newLon) {
   lat = newLat; lon = newLon; selected = true;
   const d = toDisplay(lat, lon);
@@ -779,8 +779,8 @@ function parseMapUrl(text) {
   m = text.match(/(-?[0-9]+\\.[0-9]+)[,\\s]+(-?[0-9]+\\.[0-9]+)/);
   if (m) {
     const a = parseFloat(m[1]), b = parseFloat(m[2]);
-    // 纬度绝对值不超过 90, 经度可达 180: 按绝对值判断谁是经度, 否则
-    // -122.009 这类西经会被当成纬度 (-122 < 90 恒成立)。
+    // 緯度絕對值不超過 90, 經度可達 180: 按絕對值判斷誰是經度, 否則
+    // -122.009 這類西經會被當成緯度 (-122 < 90 恆成立)。
     if (Math.abs(a) <= 90 && Math.abs(b) > 90) return { lat: a, lon: b };
     if (Math.abs(b) <= 90 && Math.abs(a) > 90) return { lat: b, lon: a };
     return { lat: a, lon: b };
@@ -788,9 +788,9 @@ function parseMapUrl(text) {
   return null;
 }
 
-// 含链接的输入交给服务端 /api/parse: 浏览器读不到跨域 302 的 Location 头, 短链
-// 只能由 worker 展开; 服务端还认 coordinate= 并按来源做 GCJ-02->WGS84 换算。
-// 纯坐标文本本地直接解析 —— 它也是唯一不需要坐标系换算的输入, 免去一次往返。
+// 含連結的輸入交給伺服器端 /api/parse: 瀏覽器讀不到跨域 302 的 Location 頭, 短鏈
+// 只能由 worker 展開; 伺服器端還認 coordinate= 並按來源做 GCJ-02->WGS84 換算。
+// 純座標文本本地直接解析 —— 它也是唯一不需要座標系換算的輸入, 免去一次往返。
 async function parseUrl() {
   const input = document.getElementById('urlInput').value.trim();
   if (!input) return toast(t('paste_first'));
