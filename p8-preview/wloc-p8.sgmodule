@@ -1,0 +1,14 @@
+#!name=Apple WLOC 定位修改【P8候選 d04b507】
+#!desc=層級2路線模擬測試版 | 選點+路線頁: https://trend0522.github.io/wloc-spoofer/ | 與正式模組二選一,先停用正式模組再啟用本模組
+#!author=trend0522 (P8 feature branch preview)
+#!homepage=https://github.com/trend0522/wloc-spoofer/tree/feature/route-sim-level2
+#!category=Tools
+#!arguments=經度:113.94114, 緯度:22.544577, 精度:25, 擾動半徑:0, 日誌等級:info
+#!arguments-desc=經度/緯度: 預設座標（線上選點儲存後優先）\n精度: GPS精度（公尺）\n擾動半徑: 每次回應在目標點周圍隨機偏移的最大距離（公尺），0為關閉\n日誌等級: off/error/warn/info/debug/all\n\nP8 測試: 路線頁選起終點→規劃→開始定位模擬；回正式模式=關本模組、開回原 WLOC 模組
+
+[Script]
+Apple WLOC P8 = type=http-response, pattern="^https?:\/\/(?:gs-loc(?:-cn)?\.apple\.com|gsp-ssl\.ls\.apple\.com|bluedot\.is\.autonavi\.com(?:\.gds\.alibabadns\.com)?)\/clls\/wloc", requires-body=1, binary-body-mode=1, max-size=0, timeout=30, script-path=https://raw.githubusercontent.com/trend0522/wloc-spoofer/refs/heads/feature/route-sim-level2/dist/wloc.js, argument=longitude={{{經度}}}&latitude={{{緯度}}}&accuracy={{{精度}}}&randomRadius={{{擾動半徑}}}&logLevel={{{日誌等級}}}
+WLOC Settings P8 = type=http-request, pattern="^https?:\/\/gs-loc(-cn)?\.apple\.com\/wloc-settings\/save", requires-body=0, max-size=0, timeout=10, script-path=https://raw.githubusercontent.com/trend0522/wloc-spoofer/refs/heads/feature/route-sim-level2/dist/wloc-settings.js
+
+[MITM]
+hostname = %APPEND% gs-loc.apple.com, gs-loc-cn.apple.com, gsp-ssl.ls.apple.com, bluedot.is.autonavi.com, bluedot.is.autonavi.com.gds.alibabadns.com

@@ -1,0 +1,1763 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>WLOC 虛擬定位</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="WLOC">
+<!-- 內聯圖標: 沒有它瀏覽器每次載入都會去要 /favicon.ico 並拿到 404 -->
+<script>try{var _th=localStorage.getItem('theme');if(_th==='dark'||_th==='light')document.documentElement.setAttribute('data-theme',_th);}catch(e){}</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%93%8D%3C/text%3E%3C/svg%3E">
+<!-- integrity 為 Leaflet 官方在 leafletjs.com/download.html 公佈的 SRI 值,
+     可自行核對。CDN 被篡改時瀏覽器會拒絕執行, 下面的 typeof L 檢查會給出提示。 -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous"/>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+<style>
+:root { color-scheme:light; --blue:#0062d9; --green:#1e7a35; --red:#b3261e; --gray:#4b5563; --bg:#f2f2f7; --orange:#ff9500; --card:#fff; --line:#d1d1d6; --text:#1f2937; --chip:#e5e5ea; --glass:rgba(255,255,255,.92); --on-accent:#fff; --edge:transparent; --danger-on:#fff; --danger-invert:#fff; }
+/* ponytail: 三軌主題只覆蓋 token, 規則零重複。data-theme=light 靠 html:not([data-theme]) 排他壓回亮; 手動暗 > auto跟系統 > 預設亮 */
+html[data-theme=dark] { color-scheme:dark; --blue:#0a84ff; --green:#30d158; --red:#ff453a; --gray:#a1a1a6; --bg:#0b0b0d; --card:#1c1c1e; --line:#38383a; --text:#ebebf0; --chip:#2c2c2e; --glass:rgba(28,28,30,.92); --on-accent:#0b0b0d; --edge:#38383a; --danger-on:#0b0b0d; --danger-invert:#0b0b0d; }
+@media (prefers-color-scheme: dark) { html:not([data-theme]) { color-scheme:dark; --blue:#0a84ff; --green:#30d158; --red:#ff453a; --gray:#a1a1a6; --bg:#0b0b0d; --card:#1c1c1e; --line:#38383a; --text:#ebebf0; --chip:#2c2c2e; --glass:rgba(28,28,30,.92); --on-accent:#0b0b0d; --edge:#38383a; --danger-on:#0b0b0d; --danger-invert:#0b0b0d; } }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:-apple-system,system-ui,"SF Pro","Helvetica Neue",sans-serif; background:var(--bg); overscroll-behavior-y:none; }
+#map { height:50vh; width:100%; min-height:250px; }
+.panel { padding:16px; max-width:600px; margin:0 auto; }
+.card { background:var(--card); border-radius:12px; padding:16px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.card h3 { font-size:15px; font-weight:600; margin-bottom:10px; color:var(--text); }
+.coords { font-family:"SF Mono",monospace; font-size:14px; color:var(--text); padding:8px 12px; background:var(--bg); border-radius:8px; word-break:break-all; }
+.row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+.btn { flex:1; min-width:100px; padding:12px 16px; border:none; border-radius:10px; font-size:14px; font-weight:500; cursor:pointer; transition:all .15s; }
+.btn-primary { background:var(--blue); color:var(--on-accent); }
+.btn-primary:active { filter:brightness(.85); transform:scale(.97); }
+.btn-secondary { background:var(--chip); color:var(--text); }
+.btn-secondary:active { filter:brightness(.92); transform:scale(.97); }
+.btn-danger { background:var(--red); color:var(--danger-on); }
+.btn-danger:active { filter:brightness(.85); transform:scale(.97); }
+.btn.success { background:var(--green); color:var(--on-accent); }
+.btn:disabled { opacity:.6; }
+.btn:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+.btn-sm { flex:none; min-width:auto; padding:6px 12px; min-height:40px; font-size:13px; border-radius:8px; }
+.input-row { display:flex; gap:8px; margin-top:10px; }
+.input-row input { flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; outline:none; min-width:0; background:var(--card); color:var(--text); }
+.input-row input::placeholder { color:var(--gray); }
+.input-row input:focus { border-color:var(--blue); }
+.sugg-wrap { position:relative; }
+.sugg-list { position:absolute; z-index:1002; top:calc(100% + 4px); left:0; right:0; background:var(--card); border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 28px rgba(0,0,0,.22); max-height:264px; overflow-y:auto; }
+.sugg-item { display:flex; align-items:center; gap:8px; padding:10px 12px; cursor:pointer; border-bottom:1px solid var(--line); }
+.sugg-item:last-child { border-bottom:none; }
+.sugg-item.sel, .sugg-item:active { background:var(--chip); }
+.sugg-item .s-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:14px; }
+.sugg-item .s-tag { flex:none; font-size:12px; color:var(--blue); }
+.sugg-item mark { background:color-mix(in srgb, var(--blue) 24%, transparent); color:inherit; border-radius:3px; padding:0 1px; }
+.sugg-empty { padding:10px 12px; font-size:13px; color:var(--gray); }
+.status { font-size:13px; color:var(--gray); margin-top:8px; text-align:center; }
+.error-banner { background:var(--red); color:var(--danger-on); padding:14px 16px; border-radius:12px; margin-bottom:12px; font-size:14px; line-height:1.5; display:none; }
+.error-banner b { display:block; margin-bottom:4px; }
+.error-banner .retry-btn { margin-top:10px; background:var(--danger-invert); color:var(--red); border:none; border-radius:8px; padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer; min-height:36px; }
+.toast { position:fixed; top:60px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.8); color:#fff; padding:10px 20px; border-radius:20px; font-size:14px; opacity:0; transition:opacity .3s; pointer-events:none; z-index:9999; max-width:90vw; text-align:center; }
+.toast.show { opacity:1; }
+.active-loc { background:var(--bg); border-radius:8px; padding:10px 12px; font-size:13px; color:var(--text); }
+.active-loc .label { font-size:13px; color:var(--gray); margin-bottom:4px; }
+.active-loc .value { font-family:"SF Mono",monospace; font-size:13px; }
+.fav-list { max-height:240px; overflow-y:auto; }
+.fav-item { display:flex; align-items:center; gap:8px; padding:10px 12px; background:var(--bg); border-radius:8px; margin-bottom:6px; transition:background .15s; }
+.fav-item:active { background:var(--chip); }
+.fav-item .fav-info { flex:1; min-width:0; }
+.fav-item .fav-name { font-size:14px; font-weight:500; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fav-item .fav-coords { font-size:13px; color:var(--gray); font-family:"SF Mono",monospace; margin-top:2px; }
+.fav-item .fav-active { font-size:12px; color:var(--green); font-weight:600; }
+.fav-item .fav-del { flex:none; width:32px; height:32px; position:relative; border:none; border-radius:50%; background:transparent; color:var(--red); font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background .15s; }
+.fav-item .fav-del::before { content:""; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:44px; height:44px; }
+.fav-item .fav-del:hover { background:color-mix(in srgb, var(--red) 12%, transparent); }
+.fav-item .fav-del:focus-visible { outline:2px solid var(--red); outline-offset:1px; }
+.fav-btn { display:flex; flex:1; align-items:center; gap:8px; min-width:0; background:transparent; border:none; padding:0; font:inherit; color:inherit; text-align:left; cursor:pointer; border-radius:6px; }
+.fav-btn:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+.fav-empty { text-align:center; color:var(--gray); font-size:13px; padding:16px 0; }
+.fav-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.fav-header h3 { margin-bottom:0; }
+.modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,.4); z-index:10000; display:none; align-items:center; justify-content:center; padding:20px; }
+.modal-overlay.show { display:flex; }
+.modal { background:var(--card); border-radius:16px; padding:20px; width:100%; max-width:340px; color:var(--text); }
+.modal h3 { font-size:17px; font-weight:600; margin-bottom:16px; text-align:center; }
+.modal input { width:100%; padding:12px; border:1px solid var(--line); border-radius:10px; font-size:15px; outline:none; margin-bottom:12px; background:var(--bg); color:var(--text); }
+.modal input:focus { border-color:var(--blue); }
+.modal .modal-btns { display:flex; gap:8px; }
+.modal .modal-btns .btn { padding:12px; }
+/* P1a/P1c/主題: 控件收進一條 map-controls, 圖層改 popover; .chip-row 玻璃底 + var(--edge) 深色描邊 */
+.map-controls { position:absolute; top:10px; left:10px; right:10px; z-index:1000; display:flex; justify-content:space-between; align-items:flex-start; gap:8px; pointer-events:none; }
+.map-controls > * { pointer-events:auto; }
+.chip-row { display:flex; align-items:center; flex-wrap:wrap; gap:2px; background:var(--glass); border:1px solid var(--edge); border-radius:10px; padding:4px; box-shadow:0 2px 8px rgba(0,0,0,.15); min-height:44px; }
+.layer-btn, .lang-btn, .theme-btn { display:flex; align-items:center; gap:5px; border:none; background:transparent; padding:6px 11px; min-height:44px; border-radius:8px; font-size:13px; font-weight:600; color:var(--text); cursor:pointer; transition:background .15s, transform .15s; white-space:nowrap; }
+.layer-btn[aria-expanded=true] { background:color-mix(in srgb, var(--blue) 16%, var(--chip)); }
+.layer-btn:active, .lang-btn:active, .theme-btn:active { transform:scale(.95); }
+.lang-btn.active { background:color-mix(in srgb, var(--blue) 16%, var(--chip)); }
+.theme-btn { padding:6px 8px; }
+.theme-btn svg { width:18px; height:18px; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; }
+button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+.popover { position:fixed; top:60px; right:10px; z-index:1100; background:var(--card); border:1px solid var(--edge); border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.25); padding:6px; width:232px; max-height:70vh; overflow:auto; }
+.popover.hidden { display:none; }
+.popover h4 { font-size:13px; font-weight:600; color:var(--gray); letter-spacing:.4px; padding:8px 10px 4px; }
+/* 功能A: 自訂圖磚(進階) popover 內嵌表單; 功能B: 路線卡控件 */
+.mapcfg { padding:8px 10px 10px; border-top:1px solid var(--line); margin-top:6px; display:flex; flex-direction:column; gap:8px; }
+.mapcfg select, .mapcfg input { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:var(--bg); color:var(--text); }
+.mapcfg .mc-btns { display:flex; gap:6px; }
+.mapcfg .mc-btns .btn { flex:1; padding:9px 6px; font-size:13px; min-height:40px; }
+.mapcfg-hint { font-size:12px; color:var(--gray); line-height:1.45; }
+.route-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
+.route-grid label { font-size:12px; color:var(--gray); display:flex; flex-direction:column; gap:4px; min-width:0; } /* min-width:0: grid 子項預設 min-content 下限會撐破窄屏 */
+.route-grid input { padding:9px 10px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:var(--bg); color:var(--text); min-width:0; }
+.rg-head { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.pin-btn { border:1px solid var(--line); background:var(--chip); color:var(--text); font-size:11px; font-weight:600; border-radius:7px; padding:4px 8px; min-height:28px; cursor:pointer; white-space:nowrap; }
+.pin-btn.armed { background:var(--blue); border-color:var(--blue); color:#fff; }
+.route-tools { display:flex; gap:6px; margin-bottom:10px; }
+.mode-row { display:flex; gap:6px; margin-bottom:10px; }
+.mode-btn { flex:1; padding:9px 4px; font-size:13px; font-weight:600; border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:9px; cursor:pointer; min-height:44px; }
+.mode-btn.active { background:color-mix(in srgb, var(--blue) 16%, var(--chip)); border-color:var(--blue); color:var(--blue); }
+.route-meta { font-size:13px; color:var(--gray); margin-bottom:8px; line-height:1.5; }
+.route-meta.is-error { color:var(--red, #c0392b); }
+.route-meta.is-ok { color:var(--green, #1e8e4e); }
+#routePickHint { font-size:12px; color:var(--blue); }
+@media(max-width:480px) { .route-tools .btn { padding:10px 4px; font-size:12px; } }
+.sim-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.sim-row input[type=range] { flex:1; accent-color:var(--blue); }
+.sim-row .sim-km { font-family:"SF Mono",monospace; font-size:12px; color:var(--gray); white-space:nowrap; }
+.layer-opt { display:flex; flex-direction:column; gap:2px; padding:8px 10px; border-radius:8px; cursor:pointer; }
+.layer-opt:hover { background:var(--bg); }
+.layer-opt input { position:absolute; opacity:0; pointer-events:none; }
+.l-name { font-size:14px; font-weight:600; color:var(--text); }
+.layer-opt input:checked ~ .l-name { color:var(--blue); }
+.l-desc { font-size:13px; color:var(--gray); line-height:1.35; }
+/* P1c: 手機黏著列; 桌面 (>768px) 完全不顯示, 面板多留底部空間 */
+#stickyBar { position:fixed; left:0; right:0; bottom:0; z-index:1001; display:none; align-items:center; gap:10px; background:var(--glass); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border-top:1px solid var(--edge); padding:10px 12px calc(10px + env(safe-area-inset-bottom)); }
+#stickyBar .sb-coords { flex:1; min-width:0; font-family:"SF Mono",monospace; font-size:13px; line-height:1.3; color:var(--gray); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#stickyBar input { width:64px; flex:none; padding:8px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:var(--card); color:var(--text); }
+#stickyBar .btn { flex:none; min-width:110px; }
+.leaflet-bottom.leaflet-right .leaflet-control-zoom { border:1px solid var(--edge); box-shadow:0 2px 8px rgba(0,0,0,.15); }
+@media(max-width:768px) { #stickyBar { display:flex; } .panel { padding-bottom:120px; } }
+@media(min-width:769px) { #stickyBar { display:none !important; } }
+@media(max-width:480px) { #map { height:44vh; } .panel { padding:12px 12px 120px; } }
+@media(max-width:768px) { /* sticky bar 接管座標/半徑/儲存, 卡內不重複出現 */ .radius-row { display:none; } #saveBtn { display:none; } }
+</style>
+</head>
+<body>
+<div style="position:relative">
+<div id="map"></div>
+<div class="map-controls">
+  <div class="chip-row">
+    <button class="lang-btn" data-lang="zh" onclick="setLang('zh')">繁</button>
+    <button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+  </div>
+  <div class="chip-row">
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="主題">
+      <svg viewBox="0 0 24 24" id="themeIcon" aria-hidden="true"></svg>
+    </button>
+    <button class="layer-btn" id="layerBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="layerPopover" data-i18n="layers" onclick="toggleLayerPopover()">圖層</button>
+  </div>
+</div>
+<div class="popover hidden" id="layerPopover" role="group" aria-label="圖層">
+  <h4 data-i18n="layer_group_base">Basemap</h4>
+  <label class="layer-opt"><input type="radio" name="layer" value="satellite" checked onclick="switchLayer('satellite')"><span class="l-name" data-i18n="layer_satellite">Satellite</span><span class="l-desc" data-i18n="layer_satellite_d">Global satellite imagery</span></label>
+  <label class="layer-opt"><input type="radio" name="layer" value="wgs84" onclick="switchLayer('wgs84')"><span class="l-name" data-i18n="layer_wgs84">WGS84</span><span class="l-desc" data-i18n="layer_wgs84_d">Street map, no offset</span></label>
+  <label class="layer-opt"><input type="radio" name="layer" value="voyager" onclick="switchLayer('voyager')"><span class="l-name" data-i18n="layer_color">Color</span><span class="l-desc" data-i18n="layer_color_d">Colourful street style</span></label>
+  <label class="layer-opt"><input type="radio" name="layer" value="standard" onclick="switchLayer('standard')"><span class="l-name" data-i18n="layer_standard">Standard</span><span class="l-desc" data-i18n="layer_standard_d">OpenStreetMap street</span></label>
+  <label class="layer-opt"><input type="radio" name="layer" value="dark" onclick="switchLayer('dark')"><span class="l-name" data-i18n="layer_dark">Dark</span><span class="l-desc" data-i18n="layer_dark_d">Dark street style</span></label>
+  <h4 data-i18n="layer_group_china">China maps</h4>
+  <label class="layer-opt"><input type="radio" name="layer" value="amap" onclick="switchLayer('amap')"><span class="l-name" data-i18n="layer_amap">Amap</span><span class="l-desc" data-i18n="layer_amap_d">China map data, offset auto-corrected</span></label>
+  <h4 data-i18n="layer_group_custom">Custom (advanced)</h4>
+  <label class="layer-opt"><input type="radio" name="layer" value="custom" id="layerCustomRadio" onclick="switchLayer('custom')"><span class="l-name" data-i18n="layer_custom">自訂圖磚</span><span class="l-desc" data-i18n="layer_custom_d" id="layerCustomDesc">尚未設定</span></label>
+  <div class="mapcfg">
+    <select id="mapProviderSel" aria-label="地圖供應商" onchange="onProviderChange()">
+      <option value="mapbox">Mapbox</option>
+      <option value="maptiler">MapTiler</option>
+    </select>
+    <select id="mapStyleSel" aria-label="底圖樣式"></select>
+    <input id="mapTileKey" type="password" autocomplete="off" spellcheck="false" data-i18n-ph="mc_tile_ph" placeholder="圖磚 Token（只存本機瀏覽器）" aria-label="圖磚 Token" />
+    <input id="mapRouteKey" type="password" autocomplete="off" spellcheck="false" data-i18n-ph="mc_route_ph" placeholder="路線 API Key（選填，另填）" aria-label="路線 API Key" />
+    <div class="mc-btns">
+      <button type="button" class="btn btn-secondary" data-i18n="mc_save" onclick="saveMapCfg()">儲存</button>
+      <button type="button" class="btn btn-secondary" data-i18n="mc_test" onclick="testMapCfg()">測試</button>
+      <button type="button" class="btn btn-danger" data-i18n="mc_clear" onclick="clearMapCfg()">清除</button>
+    </div>
+    <div class="mapcfg-hint" data-i18n-html="mc_hint"></div>
+  </div>
+</div>
+</div>
+<div style="background:#8a6d00;color:#fff;padding:6px 12px;font-size:13px;text-align:center">P8 候選版 d04b507｜測試專用｜正式站與正式模組未受影響</div><div class="panel">
+  <div class="error-banner" id="errorBanner" role="alert">
+  <div data-i18n-html="err_html"></div>
+  <button type="button" class="retry-btn" id="retryBtn" data-i18n="retry" onclick="retryLastAction()">Retry</button>
+</div>
+  <div class="card">
+    <h3 data-i18n="choose_title">Choose target location</h3>
+    <div class="coords" id="coords">Tap the map or use the tools below to pick a location</div>
+    <div class="input-row radius-row" style="margin-top:10px">
+      <label style="font-size:13px;color:var(--gray);display:flex;align-items:center;gap:6px;white-space:nowrap"><span data-i18n="radius_label">Jitter radius (m)</span>
+        <input id="radiusInput" type="number" min="0" max="5000" step="1" value="0" style="width:80px;flex:none" aria-label="Jitter radius in meters" />
+      </label>
+      <span style="font-size:13px;color:var(--gray);line-height:1.3" data-i18n="radius_hint">Each fix drifts randomly around the target point; 0 = off</span>
+    </div>
+    <div class="row">
+      <button class="btn btn-primary" id="saveBtn" data-i18n="save" onclick="save()">Save to Device</button>
+      <button class="btn btn-secondary" data-i18n="add_fav" onclick="addFav()">Add Favorite</button>
+      <button class="btn btn-secondary" data-i18n="locate" onclick="locateMe()">Current Location</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="fav-header">
+      <h3 data-i18n="fav_title">Favorites</h3>
+      <button class="btn btn-sm btn-secondary" data-i18n="clear_all" onclick="clearAllFav()" id="clearAllBtn" style="display:none">Clear All</button>
+    </div>
+    <div id="favList" class="fav-list"></div>
+  </div>
+  <div class="card">
+    <h3 data-i18n="active_title">Active coordinates</h3>
+    <div class="active-loc" id="activeLoc">
+      <div class="label" data-i18n="active_label">Device persisted data (wloc_settings)</div>
+      <div class="value" id="activeValue">Querying...</div>
+    </div>
+    <div class="row">
+      <button class="btn btn-sm btn-secondary" data-i18n="refresh" onclick="showError(false);queryActive()">Refresh</button>
+      <button class="btn btn-sm btn-danger" data-i18n="clear_data" onclick="clearActive()">Clear Data</button>
+    </div>
+  </div>
+  <div class="card">
+    <h3 data-i18n="paste_title">Paste map link</h3>
+    <div class="input-row">
+      <input id="urlInput" data-i18n-ph="paste_ph" placeholder="Apple/Google/Amap/Baidu map link or coordinates" aria-label="Map link or coordinates" />
+      <button class="btn btn-secondary" style="flex:none;min-width:56px" data-i18n="parse" onclick="parseUrl()">Parse</button>
+    </div>
+    <div style="font-size:13px;color:var(--gray);margin-top:6px" data-i18n="paste_hint">Supports Apple Maps · Google Maps · Amap · Baidu · coordinate text</div>
+  </div>
+  <div class="card">
+    <h3 data-i18n="search_title">Search place</h3>
+    <div class="input-row sugg-wrap">
+      <input id="searchInput" data-i18n-ph="search_ph" placeholder="Enter a place name (e.g. The Bund, Shanghai)" aria-label="Place name search" autocomplete="off" />
+      <button class="btn btn-secondary" style="flex:none;min-width:56px" data-i18n="search" onclick="searchPlace()">Search</button>
+      <div id="suggList" class="sugg-list" style="display:none" role="listbox"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3 data-i18n="route_title">路線規劃與模擬預覽</h3>
+    <div class="route-grid">
+      <label><span class="rg-head"><span data-i18n="route_from">起點</span><button type="button" class="pin-btn" id="pickFromBtn" data-i18n="route_pick_btn" onclick="armEndpoint('from')">圖上點</button></span><input id="routeFrom" type="text" inputmode="decimal" placeholder="lat, lon" autocomplete="off" /></label>
+      <label><span class="rg-head"><span data-i18n="route_to">終點</span><button type="button" class="pin-btn" id="pickToBtn" data-i18n="route_pick_btn" onclick="armEndpoint('to')">圖上點</button></span><input id="routeTo" type="text" inputmode="decimal" placeholder="lat, lon" autocomplete="off" /></label>
+    </div>
+    <div class="route-tools">
+      <button type="button" class="btn btn-sm btn-secondary" style="flex:1" data-i18n="route_swap" onclick="swapEndpoints()">交換起終</button>
+      <button type="button" class="btn btn-sm btn-secondary" style="flex:1" data-i18n="route_clear" onclick="clearEndpoints()">清除</button>
+      <button type="button" class="btn btn-sm btn-primary" style="flex:2" data-i18n="route_plan" onclick="planRoute()">規劃路線</button>
+    </div>
+    <div class="mode-row" role="group" aria-label="交通方式">
+      <button type="button" class="mode-btn active" id="modeWalking" data-i18n="mode_walk" onclick="setRouteMode('walking')">步行</button>
+      <button type="button" class="mode-btn" id="modeBiking" data-i18n="mode_bike" onclick="setRouteMode('biking')">腳踏車</button>
+      <button type="button" class="mode-btn" id="modeDriving" data-i18n="mode_drive" onclick="setRouteMode('driving')">開車</button>
+    </div>
+    <div class="route-meta" id="routePickHint" style="display:none"></div>
+    <div class="route-meta" id="routeMeta" aria-live="polite" data-i18n="route_hint">路網來源：Valhalla（OSM 社群公共服務，免 Key）。填入地圖 Key 後可改用 Mapbox 路線服務。這層只是網頁預覽——不會讓 iOS 系統定位沿路移動。</div>
+    <div class="route-meta" id="routeRetry" style="display:none">
+      <button type="button" class="btn btn-sm btn-secondary" id="routeRetryBtn" data-i18n="route_retry" onclick="planRoute()">重試</button>
+    </div>
+    <div class="sim-row">
+      <span style="font-size:12px;color:var(--gray)" data-i18n="sim_speed">速度</span>
+      <input id="simSpeed" type="range" min="0.25" max="8" step="0.25" value="1" aria-label="模擬速度倍率" oninput="simSpeedChanged()" />
+      <span class="sim-km" id="simSpeedVal">1.0×</span>
+    </div>
+    <div class="row">
+      <button type="button" class="btn btn-sm btn-primary" id="simPlayBtn" data-i18n="sim_start" onclick="simToggle()" disabled>開始</button>
+      <button type="button" class="btn btn-sm btn-secondary" id="simResetBtn" data-i18n="sim_reset" onclick="simReset()" disabled>重設</button>
+    </div>
+    <div class="route-meta" id="simNow" style="display:none"></div>
+    <div class="row" style="margin-top:4px">
+      <button type="button" class="btn btn-sm btn-primary" id="devSimBtn" data-i18n="dev_start" onclick="deviceSimToggle()" disabled>開始定位模擬</button>
+      <button type="button" class="btn btn-sm btn-secondary" id="devStopBtn" data-i18n="dev_stop" onclick="deviceSimStop()" style="display:none">停止並清除</button>
+    </div>
+    <div class="route-meta" id="devSimState" aria-live="polite"></div>
+  </div>
+  <div class="status" id="status" aria-live="polite">Pick a location, then tap "Save to Device" to write it to your proxy tool</div>
+</div>
+<div id="stickyBar">
+  <span class="sb-coords" id="sbCoords"></span>
+  <input id="stickyRadius" type="number" min="0" max="5000" step="1" value="0" data-i18n-aria="radius_label" aria-label="Jitter radius in meters" />
+  <button class="btn btn-primary" id="stickySave" data-i18n="save" onclick="save()" disabled>Save to Device</button>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="modal-overlay" id="favModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="favModalTitle">
+    <h3 id="favModalTitle" data-i18n="modal_title">Add this location to favorites</h3>
+    <input id="favNameInput" data-i18n-ph="modal_ph" placeholder="Enter a label (e.g. Office, Home)" maxlength="30" aria-label="Favorite label" />
+    <div style="font-size:13px;color:var(--gray);margin-bottom:12px;text-align:center" id="favModalCoords"></div>
+    <div class="modal-btns">
+      <button class="btn btn-secondary" data-i18n="cancel" onclick="closeFavModal()">Cancel</button>
+      <button class="btn btn-primary" data-i18n="save_short" onclick="confirmFav()">Save</button>
+    </div>
+  </div>
+</div>
+<script>
+if (typeof L === 'undefined') {
+  document.getElementById('map').innerHTML =
+    '<div style="padding:24px;text-align:center;font-size:14px;color:var(--gray);line-height:1.6">' +
+    '地圖庫載入失敗<br>jsdelivr CDN 不可達，請檢查網路或代理後重新整理<\/div>';
+  throw new Error('leaflet unavailable');
+}
+
+var GCJ_A = 6378245.0, GCJ_EE = 0.00669342162296594323;
+function gcjOutOfChina(lng, la) {
+  return lng < 72.004 || lng > 137.8347 || la < 0.8293 || la > 55.8271;
+}
+function gcjDeltaLat(x, y) {
+  var r = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  r += ((20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0) / 3.0;
+  r += ((20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin((y / 3.0) * Math.PI)) * 2.0) / 3.0;
+  r += ((160.0 * Math.sin((y / 12.0) * Math.PI) + 320 * Math.sin((y * Math.PI) / 30.0)) * 2.0) / 3.0;
+  return r;
+}
+function gcjDeltaLon(x, y) {
+  var r = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  r += ((20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0) / 3.0;
+  r += ((20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin((x / 3.0) * Math.PI)) * 2.0) / 3.0;
+  r += ((150.0 * Math.sin((x / 12.0) * Math.PI) + 300.0 * Math.sin((x / 30.0) * Math.PI)) * 2.0) / 3.0;
+  return r;
+}
+function wgs84ToGcj02(lat, lon) {
+  if (gcjOutOfChina(lon, lat)) return { lat: lat, lon: lon };
+  var dLat = gcjDeltaLat(lon - 105.0, lat - 35.0);
+  var dLon = gcjDeltaLon(lon - 105.0, lat - 35.0);
+  var radLat = (lat / 180.0) * Math.PI;
+  var magic = Math.sin(radLat);
+  magic = 1 - GCJ_EE * magic * magic;
+  var sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180.0) / (((GCJ_A * (1 - GCJ_EE)) / (magic * sqrtMagic)) * Math.PI);
+  dLon = (dLon * 180.0) / ((GCJ_A / sqrtMagic) * Math.cos(radLat) * Math.PI);
+  return { lat: lat + dLat, lon: lon + dLon };
+}
+function gcj02ToWgs84(lat, lon) {
+  if (gcjOutOfChina(lon, lat)) return { lat: lat, lon: lon };
+  var wgsLat = lat, wgsLon = lon;
+  for (var i = 0; i < 6; i++) {
+    var g = wgs84ToGcj02(wgsLat, wgsLon);
+    var errLat = g.lat - lat, errLon = g.lon - lon;
+    if (Math.abs(errLat) < 1e-9 && Math.abs(errLon) < 1e-9) break;
+    wgsLat -= errLat;
+    wgsLon -= errLon;
+  }
+  return { lat: wgsLat, lon: wgsLon };
+}
+
+
+/* ---- 統一模式定義：三種交通方式在每個 provider 都有真實對應的 route profile ---- */
+var ROUTE_MODES = {
+  walking: { valhalla: 'pedestrian', mapbox: 'walking', baseSpeed: 1.4 },
+  biking:  { valhalla: 'bicycle',    mapbox: 'cycling',  baseSpeed: 5.0 },
+  driving: { valhalla: 'auto',       mapbox: 'driving',  baseSpeed: 13.0 }
+};
+
+/* ---- 起終點文字解析：「lat, lon」「lat lon」「lat;lon」皆可（貼上友好），帶範圍驗證 ---- */
+function parseLatLngText(s) {
+  var parts = String(s == null ? '' : s).trim().split(/[,;\s]+/).filter(Boolean);
+  if (parts.length !== 2) return null;
+  var la = Number(parts[0]), lo = Number(parts[1]);
+  if (!isFinite(la) || !isFinite(lo) || Math.abs(la) > 90 || Math.abs(lo) > 180) return null;
+  return { lat: la, lon: lo };
+}
+
+/* ---- polyline 編碼（層級2 裝置寫入用；與 decodePolyline 互為逆） ---- */
+function polylineEncode(pairs, factor) {
+  var lastLat = 0, lastLon = 0, out = '';
+  function step(v) {
+    var n = v < 0 ? ~(v << 1) : (v << 1);
+    while (n >= 0x20) { out += String.fromCharCode((0x20 | (n & 0x1f)) + 63); n >>= 5; }
+    out += String.fromCharCode(n + 63);
+  }
+  for (var i = 0; i < pairs.length; i++) {
+    var la = Math.round(pairs[i][0] * factor), lo = Math.round(pairs[i][1] * factor);
+    step(la - lastLat); lastLat = la;
+    step(lo - lastLon); lastLon = lo;
+  }
+  return out;
+}
+
+/* ---- polyline 解碼（Google 編碼；Valhalla 預設 1e6、舊服務 1e5） ---- */
+function decodePolyline(str, factor) {
+  var pts = [], index = 0, lat = 0, lon = 0, len = str.length;
+  while (index < len) {
+    var b, shift = 0, result = 0;
+    do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    shift = 0; result = 0;
+    do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lon += (result & 1) ? ~(result >> 1) : (result >> 1);
+    pts.push({ lat: lat / factor, lon: lon / factor });
+  }
+  return pts;
+}
+
+/* ---- 距離/進度幾何（haversine + 累積距離表 + 線性插值） ---- */
+function havMeters(a, b) {
+  var R = 6371000, p = Math.PI / 180;
+  var dLat = (b.lat - a.lat) * p, dLon = (b.lon - a.lon) * p;
+  var s = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(a.lat * p) * Math.cos(b.lat * p) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+function routeCumulative(coords) {
+  var cum = [0];
+  for (var i = 1; i < coords.length; i++) cum.push(cum[i - 1] + havMeters(coords[i - 1], coords[i]));
+  return cum;
+}
+function routePositionAt(coords, cum, dist) {
+  if (!coords || !coords.length) return null;
+  if (dist <= 0) return coords[0];
+  var total = cum[cum.length - 1];
+  if (dist >= total) return coords[coords.length - 1];
+  var i = 1;
+  while (i < cum.length && cum[i] < dist) i++;
+  var seg = cum[i] - cum[i - 1];
+  var f = seg > 0 ? (dist - cum[i - 1]) / seg : 0;
+  return { lat: coords[i - 1].lat + (coords[i].lat - coords[i - 1].lat) * f,
+           lon: coords[i - 1].lon + (coords[i].lon - coords[i - 1].lon) * f };
+}
+
+/* ---- provider 請求构造
+   fetchRoute(opts) -> {coords, distance_m, duration_s}
+   失敗時 Error.message 是分類碼，UI 依碼顯示不同訊息與重試：
+   NEED_KEY(未填鑰) BAD_KEY(鑰被拒) NO_ROUTE(無可行路線) TOO_FAR(超出該模式單次距離上限)
+   SERVICE(限流/5xx/壞回應) NET(連不到) BAD_REQ(請求被拒) ---- */
+var VALHALLA_URL = 'https://valhalla1.openstreetmap.de/route';
+function valhallaRouteBody(mode, from, to) {
+  return {
+    costing: ROUTE_MODES[mode].valhalla,
+    locations: [ { lat: from.lat, lon: from.lon }, { lat: to.lat, lon: to.lon } ],
+    shape_attributes: [ 'shape' ]
+  };
+}
+function mapboxDirectionsUrl(profile, from, to, key) {
+  return 'https://api.mapbox.com/directions/v5/mapbox/' + profile + '/' +
+    from.lon + ',' + from.lat + ';' + to.lon + ',' + to.lat +
+    '?geometries=geojson&access_token=' + encodeURIComponent(key);
+}
+function normLatLngPairs(arr) {
+  var out = [];
+  if (!Array.isArray(arr)) return out;
+  for (var i = 0; i < arr.length; i++) {
+    var p = arr[i];
+    if (p && typeof p === 'object' && !Array.isArray(p) && 'lat' in p && 'lon' in p) {
+      out.push({ lat: Number(p.lat), lon: Number(p.lon) });
+    } else if (Array.isArray(p) && p.length >= 2) {
+      // GeoJSON 慣例：[lon, lat]
+      out.push({ lat: Number(p[1]), lon: Number(p[0]) });
+    }
+  }
+  return out;
+}
+function classifyHttpStatus(status) {
+  if (status === 401 || status === 403) return 'BAD_KEY';
+  if (status === 429 || status >= 500) return 'SERVICE';
+  return 'BAD_REQ';
+}
+// Valhalla 的 400 有兩種使用者意義：154=超過該模式單次距離上限、442=找不到陸路
+function classifyValhallaError(status, data) {
+  if (data && data.error_code === 154) return 'TOO_FAR';
+  if (data && data.error_code === 442) return 'NO_ROUTE';
+  return classifyHttpStatus(status);
+}
+function parseValhallaSuccess(trip) {
+  var coords = [];
+  if (trip.shape) coords = decodePolyline(trip.shape, 1e6);
+  else (trip.legs || []).forEach(function (l) { if (l.shape) coords = coords.concat(decodePolyline(l.shape, 1e6)); });
+  if (!coords.length) throw new Error('SERVICE');
+  var sum = trip.summary || {};
+  return { coords: coords, distance_m: (Number(sum.length) || 0) * 1000, duration_s: Number(sum.time) || 0 };
+}
+function parseMapboxSuccess(data) {
+  var route = data && data.routes && data.routes[0];
+  var cs = normLatLngPairs(route.geometry && route.geometry.coordinates);
+  if (!cs.length) throw new Error('SERVICE');
+  return { coords: cs, distance_m: Number(route.distance) || 0, duration_s: Number(route.duration) || 0 };
+}
+function timeoutSignal(ms) {
+  return (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(ms) : undefined;
+}
+function fetchOnce(opts) {
+  var provider = opts.provider || 'valhalla';
+  var mode = opts.mode || 'walking';
+  var m = ROUTE_MODES[mode];
+  if (!m) return Promise.reject(new Error('BAD_REQ'));
+  var sig = timeoutSignal(opts.timeoutMs || 20000);
+  if (provider === 'valhalla') {
+    return fetch(VALHALLA_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(valhallaRouteBody(mode, opts.from, opts.to)),
+      signal: sig
+    }).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (d) {
+        if (r.ok && d && d.trip) return parseValhallaSuccess(d.trip);
+        throw new Error(d ? classifyValhallaError(r.status, d) : (r.ok ? 'SERVICE' : classifyHttpStatus(r.status)));
+      });
+    });
+  }
+  var key = (opts.key || '').trim();
+  if (!key) return Promise.reject(new Error('NEED_KEY'));
+  return fetch(mapboxDirectionsUrl(m.mapbox, opts.from, opts.to, key), { signal: sig }).then(function (r) {
+    return r.json().catch(function () { return null; }).then(function (d) {
+      if (r.ok && d && d.code === 'Ok' && d.routes && d.routes.length) return parseMapboxSuccess(d);
+      if (r.status === 401 || r.status === 403) throw new Error('BAD_KEY');
+      if (d && (d.code === 'NoRoute' || d.code === 'NoValidRoutes')) throw new Error('NO_ROUTE');
+      throw new Error(r.ok ? 'SERVICE' : classifyHttpStatus(r.status));
+    });
+  });
+}
+// 先歸檔（TypeError=連不到/含CORS被擋；TimeoutError=超時），再決定重試。
+// 逾時/NET/SERVICE 才快速重試一次；4xx（無路線、超限、壞鑰）是確定性結果，不重打公共服務
+function fetchRoute(opts) {
+  return fetchOnce(opts).catch(function (err) {
+    var m = String((err && err.message) || '');
+    var code = /^(NET|SERVICE|NO_ROUTE|TOO_FAR|BAD_KEY|NEED_KEY|BAD_REQ)$/.test(m) ? m : 'NET';
+    err = (code === m) ? err : new Error(code);
+    if (code !== 'NET' && code !== 'SERVICE') throw err;
+    return new Promise(function (res) { setTimeout(res, 900); }).then(function () {
+      return fetchOnce(opts).catch(function (e2) {
+        var m2 = String((e2 && e2.message) || '');
+        throw (/^(NET|SERVICE|NO_ROUTE|TOO_FAR|BAD_KEY|NEED_KEY|BAD_REQ)$/.test(m2)) ? e2 : new Error('NET');
+      });
+    });
+  });
+}
+
+const SAVE_API = 'https://gs-loc.apple.com/wloc-settings/save';
+const FAV_KEY = 'wloc_favorites';
+const LANG_KEY = 'wloc_lang';
+// lat/lon 恆為 WGS84 —— 這是寫進設備、也是 wloc 唯一認的座標系。
+// 底圖可能是 GCJ-02 圖源, 螢幕上的經緯度與它並不相等, 換算集中在 toDisplay/
+// fromDisplay 兩個函式裡, 其它地方一律不碰。
+// 初始不選點(null)：頁面不再拿深圳預設點假裝是使用者位置; marker 在第一次 setPos 時才建。
+// 注意：模組 argument 的深圳預設值不能改 —— dist/wloc.js 靠「參數等於這組預設且無持久化」
+// 判定透傳模式(回真實定位)，改了就變成未儲存也被偽造。
+let lat = null, lon = null;
+let selected = false;
+let activeLon = null, activeLat = null, activeAcc = null, activeStatus = 'querying';
+let firstFail = false; // 首次載入查詢失敗 = 待機語氣（不出橫幅）
+let savedLon = null, savedLat = null, savedTimeStr = '';
+let saveTimer = null;
+let layerIsGcj = false;
+let currentLayerIsCustom = false; // 功能A：目前底圖是否為自訂圖磚層
+
+// 高德瓦片畫的是 GCJ-02 地物, 而 Leaflet 按 WGS84 算「像素 -> 經緯度」。所以在
+// 高德圖層上點中的那個讀數, 其實是目標點的 GCJ-02 值; 不反算就直接存, 深圳一帶
+// 會偏 500 米左右 —— 對一個定位工具來說這是致命的。反過來, 要把一個 WGS84 點
+// 畫在高德圖層上, 得先正算成 GCJ-02, 否則 marker 會落在錯誤的樓上。
+function toDisplay(la, lo) { return layerIsGcj ? wgs84ToGcj02(la, lo) : { lat: la, lon: lo }; }
+function fromDisplay(la, lo) { return layerIsGcj ? gcj02ToWgs84(la, lo) : { lat: la, lon: lo }; }
+
+/* ---- i18n (zh-Hant default / en) ---- */
+const I18N = {
+  zh: {
+    title: 'WLOC 虛擬定位',
+    layer_satellite: '衛星', layer_wgs84: 'WGS84', layer_amap: '高德', layer_color: '彩色', layer_standard: '標準', layer_dark: '暗色',
+    amap_title: '高德為 GCJ-02 偏移圖資，選點已自動換算回 WGS84',
+    layers: '圖層', layer_group_base: '底圖', layer_group_china: '中國地圖',
+    layer_satellite_d: '全球衛星影像', layer_wgs84_d: '街道圖，無偏移', layer_color_d: '彩色街道風格', layer_standard_d: 'OSM 街道圖', layer_dark_d: '暗色街道風格', layer_amap_d: '中國地圖圖資，自動校正偏移',
+    retry: '重試',
+    theme_auto: '自動', theme_light: '亮色', theme_dark: '深色',
+    theme_aria: function(n){ return '主題：' + n + '（點擊切換）'; },
+    theme_set: function(n){ return '主題：' + n; },
+    err_html: '<b>模組未生效</b>請檢查以下設定：<br>1. 已安裝並啟用 WLOC 定位模組<br>2. MITM 已開啟且信任憑證<br>3. MITM 主機名稱包含 gs-loc.apple.com<br>4. 目前網路已走代理',
+    choose_title: '選擇目標位置',
+    coords_hint: '點擊地圖或使用下方工具選擇位置',
+    radius_label: '擾動半徑(公尺)',
+    radius_hint: '每次定位會在目標點周圍隨機偏移，0＝關閉',
+    save: '儲存到裝置', add_fav: '收藏位置', locate: '目前位置',
+    fav_title: '收藏的位置', clear_all: '清除全部',
+    active_title: '目前生效座標', active_label: '裝置持久化資料 (wloc_settings)',
+    refresh: '重新整理', clear_data: '清除資料',
+    paste_title: '貼上地圖連結', paste_ph: 'Apple/Google/高德/百度地圖連結 或 經緯度', parse: '解析',
+    paste_hint: '支援 Apple Maps · Google Maps · 高德 · 百度 · 座標文字',
+    search_title: '搜尋地點', search_ph: '輸入地名（例如：上海外灘）', search: '搜尋',
+    status_hint: '選好位置後點擊「儲存到裝置」寫入代理工具',
+    modal_title: '收藏此位置', modal_ph: '輸入備註名稱（例如：公司、家）', cancel: '取消', save_short: '儲存',
+    lon: '經度', lat: '緯度', acc: '精度',
+    querying: '查詢中...', no_saved: '無已儲存的座標', query_failed: '尚未連線到代理模組——完成設定後點「重新整理」', cleared: '已清除',
+    fav_empty: '暫無收藏，選好位置後點擊「收藏位置」',
+    active_now: '✓ 目前生效', del: '刪除',
+    pick_first: '請先在地圖上選擇一個位置',
+    enter_label: '請輸入備註名稱',
+    added: function(n){ return '已收藏：' + n; },
+    deleted: function(n){ return '已刪除：' + n; },
+    clear_fav_confirm: '確定清除所有收藏？', all_cleared: '已清除所有收藏',
+    clear_confirm: '確定清除裝置上已儲存的座標？清除後將使用模組預設參數或停止修改定位。',
+    dev_cleared: '已清除裝置座標',
+    clear_failed: function(e){ return '清除失敗：' + e; },
+    clear_failed_cfg: '清除失敗 - 請檢查模組設定',
+    saving: '儲存中...', saved: '✓ 已儲存',
+    written: function(lo, la, ts){ return '✓ 已寫入：' + lo.toFixed(6) + ', ' + la.toFixed(6) + ' · ' + ts; },
+    saved_toast: '✓ 座標已寫入裝置，下次定位生效',
+    save_failed: '✗ 儲存失敗 - 請檢查模組設定', write_failed: '寫入失敗',
+    no_geo: '瀏覽器不支援定位', getting_loc: '取得位置中...', got_loc: '已取得目前位置',
+    loc_failed: function(m){ return '定位失敗：' + m; },
+    paste_first: '請貼上地圖連結或座標', parse_failed: '無法解析座標，請檢查連結格式',
+    parsing: '解析中...', parse_unreachable: '解析服務不可達',
+    parsed: function(n, lo, la){ return '已解析：' + (n || (lo.toFixed(4) + ', ' + la.toFixed(4))); },
+    enter_place: '請輸入地名', searching: '搜尋中...',
+    not_found: function(q){ return '未找到：' + q; }, search_failed: '搜尋失敗',
+    no_results: function(q){ return '無符合「' + q + '」的結果'; },
+    layer_group_custom: '自訂（進階）', layer_custom: '自訂圖磚', layer_custom_d: '尚未設定',
+    mc_tile_ph: '圖磚 Token（只存本機瀏覽器）', mc_route_ph: '路線 API Key（選填，另填）',
+    mc_save: '儲存', mc_test: '測試', mc_clear: '清除',
+    mc_hint: '⚠️ 請只填<b>公開（public）</b> Token——這類金鑰本就設計給瀏覽器使用，但任何人都能從這台裝置讀到它，費用與配額風險在你們的帳務端，請在供應商後台設好網址限制與用量上限。<b>絕對不要填伺服器私密金鑰</b>（Mapbox sk.／其他 secret）。本站不經手：金鑰只存在這台瀏覽器，不會上傳、不會進 URL、不會進 Git。',
+    mc_saved: '✓ 地圖設定已存本機', mc_need_key: '請先輸入 Token', mc_cleared: '已清除自訂地圖設定',
+    mc_test_ok: '✓ 圖磚可達', mc_test_fail: '✗ 圖磚載入失敗——請檢查 Token 或樣式',
+    mc_notyet: '自訂圖層尚未儲存,請先按「儲存」', mc_custom_d: function(p){ return p === 'mapbox' ? 'Mapbox 樣式圖磚' : 'MapTiler 樣式圖磚'; },
+    route_title: '路線規劃與模擬預覽', route_from: '起點', route_to: '終點',
+    route_pick_btn: '圖上點', route_pick_on: function(w){ return '點地圖設定' + w + '（再按一次取消）'; },
+    route_pick_from: '起點', route_pick_to: '終點',
+    route_swap: '交換起終', route_clear: '清除', route_retry: '重試',
+    mode_walk: '步行', mode_bike: '腳踏車', mode_drive: '開車',
+    route_plan: '規劃路線', sim_speed: '速度',
+    sim_start: '開始', sim_pause: '暫停', sim_resume: '繼續', sim_reset: '重設',
+    route_hint: '路網來源：Valhalla（OSM 社群公共服務，免 Key；步行 100km、腳踏車 150km 內）。填入地圖 Key 後可改用 Mapbox 路線（其 walking/cycling/driving 為真實 profile）。這層只是網頁預覽——不會讓 iOS 系統定位沿路移動。',
+    route_planning: '規劃中…（瞬時失敗會自動重試一次）', route_need_pts: '請先填起點與終點（可「圖上點」或貼上 lat, lon）', route_bad_coord: function(w){ return w + '座標格式錯誤——請用「lat, lon」，緯度 ±90、經度 ±180'; },
+    route_bad_from: '起點', route_bad_to: '終點',
+    route_failed: function(m){ return m === 'NO_ROUTE' ? '✗ 沒有可行路線：兩點間對這個交通方式找不到路（例如跨海無陸路）。可換種交通方式，或檢查兩點位置。' : m === 'TOO_FAR' ? '✗ 超過公共服務單次距離上限（步行 100km／腳踏車 150km）。請改用 Mapbox 路線 Key，或分段規劃。' : m === 'NEED_KEY' ? '✗ 需要路線 API Key：在「圖層 → 自訂（進階）」填路線 Key。' : m === 'BAD_KEY' ? '✗ 路線 Key 被供應商拒絕（invalid／未授權）。請到圖層自訂區檢查或改用免 Key 的 Valhalla（清空路線 Key）。' : m === 'SERVICE' ? '✗ 路線服務暫時不可用（限流或 5xx），已自動重試一次。稍後再按重試，或改用自備 Mapbox Key。' : m === 'NET' ? '✗ 連線不到路線服務（網路或瀏覽器阻擋）。檢查網路後重試。' : m === 'BAD_REQ' ? '✗ 請求被服務拒絕（格式或參數）。請檢查起終點後重試。' : '✗ 路線規劃失敗'; },
+    route_failed_suffix: '（起終點與模式已保留）',
+    route_info: function(mode, km, mins){ return '✓ ' + (mode==='walking'?'步行':mode==='biking'?'腳踏車':'開車') + '路線：' + km + ' 公里 · 約 ' + mins + ' 分鐘'; },
+    route_provider: function(p){ return '（來源：' + p + '）'; },
+    sim_arrived: '✓ 抵達終點', sim_running: function(km){ return '模擬中：已走 ' + km; },
+    endpoints_cleared: '已清除起終點', swapped: '已交換起終點',
+    route_note_maptiler: '（路線 Key 是 MapTiler，但其路線端點無法驗證可用，已改用免 Key 的 Valhalla）',
+    dev_start: '開始定位模擬', dev_pause: '暫停裝置模擬', dev_resume: '繼續裝置模擬', dev_stop: '停止並清除',
+    dev_writing: '寫入裝置中…', dev_started: '✓ 已寫入裝置：下次 App 定位請求起，沿路線逐次推進（實例節律決定更新粒度，非連續流動）',
+    dev_paused: '裝置模擬已暫停（路線保留）', dev_resumed: '裝置模擬已繼續（暫停時段不推進）',
+    dev_stopped: '裝置模擬已停止並清除，回復單點定位模式',
+    dev_active: function(m, v){ return '裝置模擬進行中：' + m + ' · ' + v.toFixed(1) + ' m/s'; },
+    dev_gone: '裝置上已無進行中的路線模擬', dev_status_fail: '無法取得裝置模擬狀態（模組未連線？)',
+    dev_failed: function(e){ return '✗ 裝置模擬操作失敗：' + e; },
+    dev_no_module: '代理模組未回應——請確認已安裝 WLOC 模組且 MITM 生效'
+  },
+  en: {
+    title: 'WLOC Location Spoofer',
+    layer_satellite: 'Satellite', layer_wgs84: 'WGS84', layer_amap: 'Amap', layer_color: 'Color', layer_standard: 'Standard', layer_dark: 'Dark',
+    amap_title: 'Amap tiles are GCJ-02 offset; picks are auto-converted back to WGS84',
+    layers: 'Layers', layer_group_base: 'Basemap', layer_group_china: 'China maps',
+    layer_satellite_d: 'Global satellite imagery', layer_wgs84_d: 'Streets, no offset', layer_color_d: 'Colourful street style', layer_standard_d: 'OSM street map', layer_dark_d: 'Dark street style', layer_amap_d: 'China map data, offset auto-corrected',
+    retry: 'Retry',
+    theme_auto: 'Auto', theme_light: 'Light', theme_dark: 'Dark',
+    theme_aria: function(n){ return 'Theme: ' + n + ' (tap to cycle)'; },
+    theme_set: function(n){ return 'Theme: ' + n; },
+    err_html: '<b>Module not active</b>Please check the following:<br>1. The WLOC location module is installed and enabled<br>2. MITM is on and the certificate is trusted<br>3. The MITM hostname list includes gs-loc.apple.com<br>4. The current network is routed through the proxy',
+    choose_title: 'Choose target location',
+    coords_hint: 'Tap the map or use the tools below to pick a location',
+    radius_label: 'Jitter radius (m)',
+    radius_hint: 'Each fix drifts randomly around the target point; 0 = off',
+    save: 'Save to Device', add_fav: 'Add Favorite', locate: 'Current Location',
+    fav_title: 'Favorites', clear_all: 'Clear All',
+    active_title: 'Active coordinates', active_label: 'Device persisted data (wloc_settings)',
+    refresh: 'Refresh', clear_data: 'Clear Data',
+    paste_title: 'Paste map link', paste_ph: 'Apple / Google / Amap / Baidu map link or coordinates', parse: 'Parse',
+    paste_hint: 'Supports Apple Maps · Google Maps · Amap · Baidu · coordinate text',
+    search_title: 'Search place', search_ph: 'Enter a place name (e.g. The Bund, Shanghai)', search: 'Search',
+    status_hint: 'Pick a location, then tap "Save to Device" to write it to your proxy tool',
+    modal_title: 'Add this location to favorites', modal_ph: 'Enter a label (e.g. Office, Home)', cancel: 'Cancel', save_short: 'Save',
+    lon: 'Lon', lat: 'Lat', acc: 'Accuracy',
+    querying: 'Querying...', no_saved: 'No saved coordinates', query_failed: 'Not connected to the proxy module — finish setup, then tap Refresh', cleared: 'Cleared',
+    fav_empty: 'No favorites yet. Pick a location and tap "Add Favorite".',
+    active_now: '✓ Active now', del: 'Delete',
+    pick_first: 'Please pick a location on the map first',
+    enter_label: 'Please enter a label',
+    added: function(n){ return 'Added: ' + n; },
+    deleted: function(n){ return 'Deleted: ' + n; },
+    clear_fav_confirm: 'Clear all favorites?', all_cleared: 'All favorites cleared',
+    clear_confirm: 'Clear the coordinates saved on the device? After clearing, the module default parameters will be used or location spoofing will stop.',
+    dev_cleared: 'Device coordinates cleared',
+    clear_failed: function(e){ return 'Clear failed: ' + e; },
+    clear_failed_cfg: 'Clear failed - please check the module configuration',
+    saving: 'Saving...', saved: '✓ Saved',
+    written: function(lo, la, ts){ return '✓ Written: ' + lo.toFixed(6) + ', ' + la.toFixed(6) + ' · ' + ts; },
+    saved_toast: '✓ Coordinates written to device, effective on next location fix',
+    save_failed: '✗ Save failed - please check the module configuration', write_failed: 'Write failed',
+    no_geo: 'Browser does not support geolocation', getting_loc: 'Getting location...', got_loc: 'Current location acquired',
+    loc_failed: function(m){ return 'Location failed: ' + m; },
+    paste_first: 'Please paste a map link or coordinates', parse_failed: 'Could not parse coordinates, please check the link format',
+    parsing: 'Parsing...', parse_unreachable: 'Parse service unreachable',
+    parsed: function(n, lo, la){ return 'Parsed: ' + (n || (lo.toFixed(4) + ', ' + la.toFixed(4))); },
+    enter_place: 'Please enter a place name', searching: 'Searching...',
+    not_found: function(q){ return 'Not found: ' + q; }, search_failed: 'Search failed',
+    no_results: function(q){ return 'No results for “' + q + '”'; },
+    layer_group_custom: 'Custom (advanced)', layer_custom: 'Custom tiles', layer_custom_d: 'Not configured',
+    mc_tile_ph: 'Tiles token (stored in this browser only)', mc_route_ph: 'Routing API key (optional)',
+    mc_save: 'Save', mc_test: 'Test', mc_clear: 'Clear',
+    mc_hint: '⚠️ Enter a <b>public</b> token only — these are designed for browsers, but anyone with this device can read it, and the cost/quota risk is on your account. Set URL restrictions and usage caps in the provider console. <b>Never enter a server secret key</b> (Mapbox sk. / other secrets). This site never handles it: the key stays in this browser, is not uploaded, never enters the URL or Git.',
+    mc_saved: '✓ Map settings saved locally', mc_need_key: 'Please enter a token first', mc_cleared: 'Custom map settings cleared',
+    mc_test_ok: '✓ Tiles reachable', mc_test_fail: '✗ Tile load failed — check token or style',
+    mc_notyet: 'Custom layer not saved yet — tap “Save” first', mc_custom_d: function(p){ return p === 'mapbox' ? 'Mapbox style tiles' : 'MapTiler style tiles'; },
+    route_title: 'Route planning & simulation preview', route_from: 'Start', route_to: 'Destination',
+    route_pick_btn: 'Pick', route_pick_on: function(w){ return 'Tap the map to set ' + w + ' (tap again to cancel)'; },
+    route_pick_from: 'the start', route_pick_to: 'the destination',
+    route_swap: 'Swap', route_clear: 'Clear', route_retry: 'Retry',
+    mode_walk: 'Walk', mode_bike: 'Bike', mode_drive: 'Drive',
+    route_plan: 'Plan route', sim_speed: 'Speed',
+    sim_start: 'Start', sim_pause: 'Pause', sim_resume: 'Resume', sim_reset: 'Reset',
+    route_hint: 'Routing: Valhalla (OSM community service, no key; up to 100 km walking / 150 km cycling per request). Add a map key under Layers to use Mapbox routing (real walking/cycling/driving profiles). This is a web preview only — it does not move the iOS system location along the route.',
+    route_planning: 'Planning… (transient failures retry once automatically)', route_need_pts: 'Fill both start and destination (use “Pick” or paste lat, lon)', route_bad_coord: function(w){ return w + 'coordinate is invalid — use “lat, lon”, latitude ±90, longitude ±180'; },
+    route_bad_from: 'Start ', route_bad_to: 'Destination ',
+    route_failed: function(m){ return m === 'NO_ROUTE' ? '✗ No feasible route: no path for this mode between the points (e.g. sea crossing without land). Try another mode, or check the points.' : m === 'TOO_FAR' ? '✗ Exceeds the public service per-request limit (100 km walking / 150 km cycling). Use a Mapbox routing key, or split the trip.' : m === 'NEED_KEY' ? '✗ A routing API key is required: add it under Layers → Custom (advanced).' : m === 'BAD_KEY' ? '✗ The routing key was rejected by the provider (invalid / unauthorized). Check it under Layers → Custom, or clear it to use free Valhalla.' : m === 'SERVICE' ? '✗ Routing service temporarily unavailable (rate-limited or 5xx) — one automatic retry already failed. Retry later, or use your own Mapbox key.' : m === 'NET' ? '✗ Cannot reach the routing service (network or browser blocked it). Check your connection and retry.' : m === 'BAD_REQ' ? '✗ The service rejected the request (format or parameters). Check the points and retry.' : '✗ Route planning failed'; },
+    route_failed_suffix: ' (start, destination and mode kept)',
+    route_info: function(mode, km, mins){ return '✓ ' + (mode==='walking'?'Walking':mode==='biking'?'Cycling':'Driving') + ' route: ' + km + ' km · about ' + mins + ' min'; },
+    route_provider: function(p){ return ' (via ' + p + ')'; },
+    sim_arrived: '✓ Arrived', sim_running: function(km){ return 'Simulating: ' + km + ' travelled'; },
+    endpoints_cleared: 'Start and destination cleared', swapped: 'Start and destination swapped',
+    route_note_maptiler: ' (routing key is MapTiler, but its directions endpoint could not be verified — fell back to free Valhalla)',
+    dev_start: 'Start Device Simulation', dev_pause: 'Pause Device Sim', dev_resume: 'Resume Device Sim', dev_stop: 'Stop & Clear',
+    dev_writing: 'Writing to device…', dev_started: '✓ Written to device: from the next app location request, positions advance along the route (update granularity = the app’s request cadence, not continuous motion)',
+    dev_paused: 'Device simulation paused (route kept)', dev_resumed: 'Device simulation resumed (pause time is not counted)',
+    dev_stopped: 'Device simulation stopped and cleared; single-point mode restored',
+    dev_active: function(m, v){ return 'Device simulation active: ' + m + ' · ' + v.toFixed(1) + ' m/s'; },
+    dev_gone: 'No route simulation active on the device anymore', dev_status_fail: 'Cannot read device simulation state (module offline?)',
+    dev_failed: function(e){ return '✗ Device simulation operation failed: ' + e; },
+    dev_no_module: 'Proxy module not responding — make sure the WLOC module is installed and MITM is active'
+  }
+};
+
+function detectLang() {
+  try {
+    const saved = localStorage.getItem(LANG_KEY);
+    if (saved === 'zh' || saved === 'en') return saved;
+  } catch(e) {}
+  return 'zh'; // default Chinese (Traditional); tap EN to switch (remembered per browser)
+}
+let lang = detectLang();
+
+/* ---- Theme (auto|light|dark; localStorage key 'theme', default auto) ---- */
+const THEME_KEY = 'theme';
+const THEME_ORDER = ['auto', 'light', 'dark'];
+function detectTheme() {
+  try {
+    const v = localStorage.getItem(THEME_KEY);
+    if (v === 'light' || v === 'dark') return v;
+  } catch(e) {}
+  return 'auto';
+}
+let theme = detectTheme();
+function themeName() { return t('theme_' + theme); }
+function applyTheme() {
+  // auto => no attribute: the prefers-color-scheme block owns it; light/dark win via [data-theme].
+  if (theme === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', theme);
+  renderThemeBtn();
+}
+function renderThemeBtn() {
+  const icon = document.getElementById('themeIcon');
+  if (!icon) return;
+  const svg = {
+    auto: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18M12 3a9 9 0 0 1 0 18" fill="currentColor" stroke="none"/>',
+    light: '<circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5 5l1.8 1.8M17.2 17.2L19 19M19 5l-1.8 1.8M6.8 17.2L5 19"/>',
+    dark: '<path d="M20 13.5A8.5 8.5 0 1 1 10.5 4a7 7 0 0 0 9.5 9.5z"/>'
+  }[theme];
+  icon.innerHTML = svg;
+  const btn = document.getElementById('themeBtn');
+  btn.setAttribute('aria-label', t('theme_aria', themeName()));
+  btn.setAttribute('aria-pressed', theme !== 'auto' ? 'true' : 'false');
+}
+function cycleTheme() {
+  theme = THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % 3];
+  try { localStorage.setItem(THEME_KEY, theme); } catch(e) {}
+  applyTheme();
+  announce(t('theme_set', themeName()));
+}
+document.getElementById('themeBtn').addEventListener('click', cycleTheme);
+// auto follows the system live (only while in auto mode)
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){ if (theme === 'auto') announce(t('theme_set', themeName())); });
+// announce() reuses the toast element (role=status aria-live=polite already on it)
+function announce(msg) { toast(msg, 1500); }
+
+function t(key) {
+  const v = I18N[lang][key];
+  if (typeof v === 'function') return v.apply(null, Array.prototype.slice.call(arguments, 1));
+  return v === undefined ? key : v;
+}
+
+function applyI18n() {
+  document.documentElement.lang = (lang === 'zh' ? 'zh-Hant' : 'en');
+  document.title = t('title');
+  document.querySelectorAll('[data-i18n]').forEach(function(el){ el.textContent = t(el.getAttribute('data-i18n')); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(function(el){ el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph'))); });
+  document.querySelectorAll('[data-i18n-title]').forEach(function(el){ el.setAttribute('title', t(el.getAttribute('data-i18n-title'))); });
+  document.querySelectorAll('[data-i18n-aria]').forEach(function(el){ el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
+  document.querySelectorAll('[data-i18n-html]').forEach(function(el){ el.innerHTML = t(el.getAttribute('data-i18n-html')); });
+  document.querySelectorAll('.lang-btn').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-lang') === lang); });
+  renderThemeBtn();
+  updateCoords();
+  updateStatus();
+  renderActive();
+  renderFavs();
+  refreshMapRouteUI();
+}
+
+// 語言切換後修補功能A/B 的动态文案（這些位置會被 data-i18n 重置回静态預設）
+function refreshMapRouteUI() {
+  const meta = document.getElementById('routeMeta');
+  if (routeData) {
+    const km = (routeData.distance_m / 1000).toFixed(2);
+    const mins = Math.max(1, Math.round((routeData.duration_s || 0) / 60));
+    meta.textContent = t('route_info', routeData.mode, km, mins) + t('route_provider', routeData.provider);
+    document.getElementById('simPlayBtn').textContent = t(simState === 'running' ? 'sim_pause' : simState === 'paused' ? 'sim_resume' : simState === 'arrived' ? 'sim_start' : 'sim_start');
+  } else {
+    meta.textContent = t('route_hint');
+  }
+  if (mapCfg) document.getElementById('layerCustomDesc').textContent = t('mc_custom_d', mapCfg.provider);
+  renderStyleSel();
+  if (mapCfg) document.getElementById('mapStyleSel').value = mapCfg.style;
+}
+
+function setLang(l) {
+  lang = l;
+  try { localStorage.setItem(LANG_KEY, l); } catch(e) {}
+  applyI18n();
+}
+
+function updateCoords() {
+  document.getElementById('coords').textContent = selected
+    ? (t('lon') + ' ' + lon.toFixed(6) + '  ' + t('lat') + ' ' + lat.toFixed(6))
+    : t('coords_hint');
+  syncSticky();
+}
+
+// P1c: sticky bar mirrors coords + save state. #radiusInput stays the single
+// source of truth (save() reads it); stickyRadius just syncs both ways.
+function syncSticky() {
+  const sticky = document.getElementById('stickySave');
+  if (!sticky) return;
+  document.getElementById('sbCoords').textContent = selected ? (lon.toFixed(6) + ', ' + lat.toFixed(6)) : t('coords_hint');
+  if (!sticky.classList.contains('busy')) sticky.disabled = !selected;
+}
+document.getElementById('radiusInput').addEventListener('input', e => { document.getElementById('stickyRadius').value = e.target.value; });
+document.getElementById('stickyRadius').addEventListener('input', e => { document.getElementById('radiusInput').value = e.target.value; });
+
+function updateStatus() {
+  document.getElementById('status').textContent = (savedLon !== null)
+    ? t('written', savedLon, savedLat, savedTimeStr)
+    : t('status_hint');
+}
+
+function renderActive() {
+  const el = document.getElementById('activeValue');
+  if (activeStatus === 'ok') {
+    el.textContent = t('lon') + ' ' + activeLon.toFixed(6) + '  ' + t('lat') + ' ' + activeLat.toFixed(6) + (activeAcc ? ('  ' + t('acc') + ' ' + activeAcc + 'm') : '');
+  } else if (activeStatus === 'none') {
+    el.textContent = t('no_saved');
+  } else if (activeStatus === 'failed') {
+    el.textContent = t('query_failed');
+    el.style.color = firstFail ? 'var(--gray)' : 'var(--text)';
+  } else if (activeStatus === 'cleared') {
+    el.textContent = t('cleared');
+  } else {
+    el.textContent = t('querying');
+  }
+}
+
+const map = L.map('map').setView([25.033964, 121.564556], 13); map.zoomControl.setPosition('bottomright'); // 台北101：純初始視窗, 不是選點
+const tiles = {
+  satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19, attribution:'ArcGIS'}),
+  wgs84: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {maxZoom:19, attribution:'ArcGIS WGS84'}),
+  standard: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'\u00a9 OSM'}),
+  dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {maxZoom:19, attribution:'\u00a9 Carto'}),
+  amap: L.tileLayer('https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', {maxZoom:18, subdomains:'1234', attribution:'\u00a9 高德'}),
+  voyager: L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {maxZoom:19, attribution:'\u00a9 Carto'})
+};
+let currentLayer = tiles.satellite;
+currentLayer.addTo(map);
+function switchLayer(name) {
+  if (name === 'custom' && (!mapCfg || !tiles.custom)) {
+    toggleLayerPopover(false); toast(t('mc_need_key'));
+    // 把勾選還原到實際在用的圖層,而不是硬跳到衛星
+    const curName = Object.keys(tiles).find(function(k){ return tiles[k] === currentLayer; }) || 'satellite';
+    const cur = document.querySelector('#layerPopover input[name=layer][value=' + curName + ']');
+    if (cur && !cur.disabled) cur.checked = true;
+    return;
+  }
+  if (currentLayer === tiles[name]) { /* re-selecting current layer: just close menu */ toggleLayerPopover(false); return; }
+  map.removeLayer(currentLayer);
+  toggleLayerPopover(false);
+  currentLayer = tiles[name];
+  currentLayerIsCustom = (name === 'custom');
+  currentLayer.addTo(map);
+  // 高德與自訂供應商(Mapbox/MapTiler 皆 WGS84)處理不同：amap 需 GCJ 補償，其餘直接显示
+  layerIsGcj = (name === 'amap');
+  // 底圖座標系變了, 同一個 WGS84 點對應的螢幕位置也就變了, marker 必須重擺,
+  // 否則切換圖層後它會停在舊圖源的像素位置上, 看起來像是座標被改掉了。
+  if (marker) {
+    const d = toDisplay(lat, lon);
+    marker.setLatLng([d.lat, d.lon]);
+    map.setView([d.lat, d.lon], map.getZoom());
+  }
+  document.querySelectorAll('#layerPopover input').forEach(r => { r.checked = (r.value === name); });
+}
+/* ---- Layer popover (P1a): one button, grouped menu; layer objects/behaviour unchanged ---- */
+function toggleLayerPopover(force) {
+  const p = document.getElementById('layerPopover');
+  const open = force !== undefined ? force : p.classList.contains('hidden');
+  p.classList.toggle('hidden', !open);
+  document.getElementById('layerBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  return open;
+}
+document.addEventListener('click', function(e){
+  const p = document.getElementById('layerPopover');
+  if (!p.classList.contains('hidden') && !p.contains(e.target) && !document.getElementById('layerBtn').contains(e.target)) toggleLayerPopover(false);
+});
+
+/* ---- 功能A：自訂底圖（瀏覽器公開 token，只存本機 localStorage，絕不經本站上傳） ---- */
+const MAP_CFG_KEY = 'wloc_map_cfg';
+const MAP_PROVIDERS = {
+  mapbox: {
+    styles: [
+      { id: 'streets-v12', zh: '街道', en: 'Streets' },
+      { id: 'outdoors-v12', zh: '户外', en: 'Outdoors' },
+      { id: 'satellite-v9', zh: '衛星', en: 'Satellite' }
+    ],
+    tileUrl: function(style, key, retina) {
+      return 'https://api.mapbox.com/styles/v1/' + style + '/tiles/512/{z}/{x}/{y}' + (retina ? '@2x' : '') + '?access_token=' + encodeURIComponent(key);
+    },
+    // Mapbox 瀏覽器直連官方允許 CORS；圖層 attribution 為其使用條款要求
+    attribution: '© Mapbox © OpenStreetMap'
+  },
+  maptiler: {
+    styles: [
+      { id: 'streets-v2', zh: '街道', en: 'Streets' },
+      { id: 'outdoor-v2', zh: '户外', en: 'Outdoors' },
+      { id: 'satellite-v2', zh: '衛星', en: 'Satellite' }
+    ],
+    tileUrl: function(style, key, retina) {
+      return 'https://api.maptiler.com/maps/' + style + '/{z}/{x}/{y}' + (retina ? '@2x' : '') + '.png?key=' + encodeURIComponent(key);
+    },
+    attribution: '© MapTiler © OpenStreetMap'
+  }
+};
+let mapCfg = null; // { provider, style, tileKey, routeKey } —— 只活在這個變數與 localStorage
+function loadMapCfg() {
+  try {
+    const c = JSON.parse(localStorage.getItem(MAP_CFG_KEY) || 'null');
+    if (c && MAP_PROVIDERS[c.provider] && c.tileKey) { mapCfg = c; return; }
+  } catch(e) {}
+  mapCfg = null;
+}
+function renderStyleSel() {
+  const sel = document.getElementById('mapStyleSel');
+  const p = MAP_PROVIDERS[document.getElementById('mapProviderSel').value] || MAP_PROVIDERS.mapbox;
+  // innerHTML 內容全部來自上方 MAP_PROVIDERS 常數表（非使用者輸入），無 XSS 面
+  sel.innerHTML = p.styles.map(function(s){ return '<option value="' + s.id + '">' + (lang === 'zh' ? s.zh : s.en) + '</option>'; }).join('');
+}
+function onProviderChange() {
+  renderStyleSel();
+}
+function buildCustomLayer() {
+  if (!mapCfg) return null;
+  const p = MAP_PROVIDERS[mapCfg.provider];
+  if (!p) return null;
+  return L.tileLayer(p.tileUrl(mapCfg.style, mapCfg.tileKey, false), { maxZoom: 19, attribution: p.attribution });
+}
+function applyMapCfgUI() {
+  const radio = document.getElementById('layerCustomRadio');
+  const desc = document.getElementById('layerCustomDesc');
+  // 重建自訂圖層物件（token/樣式可能已改）
+  if (tiles.custom) { map.removeLayer(tiles.custom); delete tiles.custom; }
+  if (mapCfg) {
+    radio.disabled = false;
+    desc.textContent = t('mc_custom_d', mapCfg.provider);
+    document.getElementById('mapProviderSel').value = mapCfg.provider;
+    renderStyleSel();
+    document.getElementById('mapStyleSel').value = mapCfg.style;
+    document.getElementById('mapTileKey').value = mapCfg.tileKey;
+    document.getElementById('mapRouteKey').value = mapCfg.routeKey || '';
+    tiles.custom = buildCustomLayer();
+    // 若目前正使用自訂圖層，立即掛上重建後的版本
+    if (currentLayerIsCustom) { currentLayer = tiles.custom; currentLayer.addTo(map); }
+  } else {
+    radio.disabled = true;
+    desc.textContent = t('layer_custom_d');
+    if (currentLayerIsCustom) { currentLayerIsCustom = false; map.removeLayer(tiles.custom || currentLayer); currentLayer = tiles.satellite; currentLayer.addTo(map); const sat = document.querySelector('#layerPopover input[name=layer][value=satellite]'); if (sat) sat.checked = true; }
+  }
+}
+function saveMapCfg() {
+  const provider = document.getElementById('mapProviderSel').value;
+  const style = document.getElementById('mapStyleSel').value;
+  const tileKey = document.getElementById('mapTileKey').value.trim();
+  const routeKey = document.getElementById('mapRouteKey').value.trim();
+  if (!tileKey) { toast(t('mc_need_key')); return; }
+  mapCfg = { provider: provider, style: style, tileKey: tileKey, routeKey: routeKey };
+  try { localStorage.setItem(MAP_CFG_KEY, JSON.stringify(mapCfg)); } catch(e) {}
+  applyMapCfgUI();
+  toast(t('mc_saved'));
+}
+function clearMapCfg() {
+  try { localStorage.removeItem(MAP_CFG_KEY); } catch(e) {}
+  mapCfg = null;
+  document.getElementById('mapTileKey').value = '';
+  document.getElementById('mapRouteKey').value = '';
+  applyMapCfgUI();
+  toast(t('mc_cleared'));
+}
+// 以中心點 z=12 圖磚實際載入驗證 token 可達；不發任何寫入型請求。
+function tileXY(lat, lon, z) {
+  const n = 1 << z;
+  const rad = lat * Math.PI / 180;
+  return {
+    x: Math.floor((lon + 180) / 360 * n),
+    y: Math.floor((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * n)
+  };
+}
+function testMapCfg() {
+  const provider = document.getElementById('mapProviderSel').value;
+  const style = document.getElementById('mapStyleSel').value;
+  const tileKey = document.getElementById('mapTileKey').value.trim();
+  if (!tileKey) { toast(t('mc_need_key')); return; }
+  const p = MAP_PROVIDERS[provider];
+  const t0 = (lat !== null && selected) ? tileXY(lat, lon, 12) : tileXY(25.03, 121.56, 12);
+  const url = p.tileUrl(style, tileKey, false).replace('{z}', 12).replace('{x}', t0.x).replace('{y}', t0.y);
+  const img = new Image();
+  img.onload = function(){ toast(t('mc_test_ok')); };
+  img.onerror = function(){ toast(t('mc_test_fail')); };
+  img.src = url;
+}
+
+// 路線規劃與模擬（層級1 網頁動畫 + 層級2 裝置模擬控制；座標一律 WGS84）
+let routeMode = 'walking';
+let routeData = null;   // { coords, cum, total, provider, mode, distance_m, duration_s }
+let routeLine = null, simMarker = null;
+let simState = 'idle';  // idle | running | paused | arrived
+let simDist = 0, simLastTs = 0, simRaf = null;
+let routePickArm = null; // null | 'from' | 'to' —— 地圖點擊要寫入哪個欄位
+
+function setRouteMode(mode) {
+  routeMode = mode;
+  ['Walking','Biking','Driving'].forEach(function(k){ const b = document.getElementById('mode' + k); if (b) b.classList.remove('active'); });
+  const id = mode === 'walking' ? 'modeWalking' : mode === 'biking' ? 'modeBiking' : 'modeDriving';
+  document.getElementById(id).classList.add('active');
+  // 切換模式保留起終點；已有路線則自動重劃（同兩點、新 profile）
+  if (routeData) planRoute();
+}
+function armEndpoint(which) {
+  routePickArm = (routePickArm === which) ? null : which;
+  document.getElementById('pickFromBtn').classList.toggle('armed', routePickArm === 'from');
+  document.getElementById('pickToBtn').classList.toggle('armed', routePickArm === 'to');
+  const hint = document.getElementById('routePickHint');
+  if (routePickArm) { hint.style.display = ''; hint.textContent = t('route_pick_on', t(routePickArm === 'from' ? 'route_pick_from' : 'route_pick_to')); }
+  else { hint.style.display = 'none'; hint.textContent = ''; }
+}
+function applyArmedPoint(wLat, wLon) {
+  const el = document.getElementById(routePickArm === 'to' ? 'routeTo' : 'routeFrom');
+  el.value = wLat.toFixed(6) + ', ' + wLon.toFixed(6);
+  endpointMarker(routePickArm, wLat, wLon);
+  armEndpoint(routePickArm); // 設完自動解除武裝，避免誤點覆蓋
+  el.dispatchEvent(new Event('input'));
+}
+function endpointMarker(which, la, lo) {
+  const key = which === 'to' ? 'toPtMarker' : 'fromPtMarker';
+  const d = toDisplay(la, lo);
+  if (!window[key]) window[key] = L.circleMarker([d.lat, d.lon], { radius: 6, weight: 2, color: which === 'to' ? '#bf4520' : '#1e8e4e', fillColor: which === 'to' ? '#bf4520' : '#1e8e4e', fillOpacity: 0.8 }).addTo(map);
+  else window[key].setLatLng([d.lat, d.lon]);
+}
+function swapEndpoints() {
+  const a = document.getElementById('routeFrom'), b = document.getElementById('routeTo');
+  const t0 = a.value; a.value = b.value; b.value = t0;
+  const fa = parseLatLngText(a.value), fb = parseLatLngText(b.value);
+  if (fa) endpointMarker('from', fa.lat, fa.lon);
+  if (fb) endpointMarker('to', fb.lat, fb.lon);
+  toast(t('swapped'));
+  if (routeData) planRoute();
+}
+function clearEndpoints() {
+  document.getElementById('routeFrom').value = '';
+  document.getElementById('routeTo').value = '';
+  ['fromPtMarker','toPtMarker'].forEach(function(k){ if (window[k]) { map.removeLayer(window[k]); window[k] = null; } });
+  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+  if (simMarker) { map.removeLayer(simMarker); simMarker = null; }
+  routeData = null; simState = 'idle'; simDist = 0;
+  document.getElementById('simPlayBtn').disabled = true;
+  document.getElementById('simResetBtn').disabled = true;
+  document.getElementById('simNow').style.display = 'none';
+  document.getElementById('routeRetry').style.display = 'none';
+  routeSetMeta(t('route_hint'), '');
+  if (routePickArm) armEndpoint(routePickArm);
+  toast(t('endpoints_cleared'));
+}
+// 路線服務 provider 選擇：圖磚 key ≠ 路線 key，且只有 Mapbox 的路線端點經實測驗證。
+// MapTiler 路線端點探測全 404（無法驗證），所以 provider==='maptiler' 時退回 Valhalla，
+// 並把原因顯示出來——不靜默改用未驗證的服務。
+function routeProviderPlan() {
+  if (mapCfg && mapCfg.routeKey) {
+    if (mapCfg.provider === 'mapbox') return { provider: 'mapbox', key: mapCfg.routeKey };
+    return { provider: 'valhalla', key: '', note: t('route_note_maptiler') };
+  }
+  return { provider: 'valhalla', key: '' };
+}
+function routeSetMeta(msg, cls) {
+  const el = document.getElementById('routeMeta');
+  el.textContent = msg;
+  el.className = 'route-meta' + (cls ? ' ' + cls : '');
+}
+async function planRoute() {
+  const rawFrom = document.getElementById('routeFrom').value, rawTo = document.getElementById('routeTo').value;
+  const from = parseLatLngText(rawFrom), to = parseLatLngText(rawTo);
+  if (!from && !to) { routeSetMeta(t('route_need_pts'), 'is-error'); document.getElementById('routeRetry').style.display = 'none'; return; }
+  if (!from) { routeSetMeta(t('route_bad_coord', t('route_bad_from')), 'is-error'); document.getElementById('routeRetry').style.display = 'none'; return; }
+  if (!to) { routeSetMeta(t('route_bad_coord', t('route_bad_to')), 'is-error'); document.getElementById('routeRetry').style.display = 'none'; return; }
+  endpointMarker('from', from.lat, from.lon); endpointMarker('to', to.lat, to.lon);
+  const pp = routeProviderPlan();
+  routeSetMeta(t('route_planning'), '');
+  document.getElementById('routeRetry').style.display = 'none';
+  try {
+    const r = await fetchRoute({ provider: pp.provider, mode: routeMode, from: from, to: to, key: pp.key });
+    const cum = routeCumulative(r.coords);
+    routeData = {
+      coords: r.coords, cum: cum, total: cum[cum.length - 1],
+      provider: pp.provider, mode: routeMode, distance_m: r.distance_m, duration_s: r.duration_s
+    };
+    drawRoute();
+    const km = (r.distance_m / 1000).toFixed(2);
+    const mins = Math.max(1, Math.round((r.duration_s || 0) / 60));
+    routeSetMeta(t('route_info', routeMode, km, mins) + t('route_provider', pp.provider) + (pp.note || ''), 'is-ok');
+    document.getElementById('simPlayBtn').disabled = false;
+    document.getElementById('simResetBtn').disabled = false;
+    simReset(true);
+    devSimRender(); // 有路線後才開放「開始定位模擬」
+  } catch (e) {
+    const code = String(e && e.message || '');
+    // 失敗保留起終點、模式與其他設定；只清掉路線圖形
+    routeData = null;
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    if (simMarker) { map.removeLayer(simMarker); simMarker = null; }
+    document.getElementById('simPlayBtn').disabled = true;
+    document.getElementById('simResetBtn').disabled = true;
+    document.getElementById('simNow').style.display = 'none';
+    routeSetMeta(t('route_failed', code) + t('route_failed_suffix'), 'is-error');
+    document.getElementById('routeRetry').style.display = '';
+  }
+}
+function drawRoute() {
+  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+  const disp = routeData.coords.map(function(p){ const d = toDisplay(p.lat, p.lon); return [d.lat, d.lon]; });
+  routeLine = L.polyline(disp, { color: '#2f7de1', weight: 5, opacity: 0.85 }).addTo(map);
+  map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+}
+function simSpeedFactor() { return Number(document.getElementById('simSpeed').value) || 1; }
+function simSpeedChanged() {
+  document.getElementById('simSpeedVal').textContent = simSpeedFactor().toFixed(1) + '×';
+}
+function simBaseSpeed() { return (ROUTE_MODES[routeMode] || { baseSpeed: 1.4 }).baseSpeed; }
+function simToggle() {
+  if (!routeData) return;
+  if (simState === 'arrived') { simReset(); }
+  if (simState === 'running') { simPause(); return; }
+  simStart();
+}
+function simStart() {
+  simState = 'running';
+  simLastTs = performance.now();
+  document.getElementById('simPlayBtn').textContent = t('sim_pause');
+  cancelAnimationFrame(simRaf);
+  const step = function(now) {
+    if (simState !== 'running') return;
+    const dt = (now - simLastTs) / 1000; simLastTs = now;
+    simDist += dt * simBaseSpeed() * simSpeedFactor();
+    if (simDist >= routeData.total) { simDist = routeData.total; renderSimPos(); simArrived(); return; }
+    renderSimPos();
+    simRaf = requestAnimationFrame(step);
+  };
+  simRaf = requestAnimationFrame(step);
+}
+function simPause() {
+  simState = 'paused';
+  cancelAnimationFrame(simRaf);
+  document.getElementById('simPlayBtn').textContent = t('sim_resume');
+}
+function simArrived() {
+  simState = 'arrived';
+  cancelAnimationFrame(simRaf);
+  document.getElementById('simPlayBtn').textContent = t('sim_start');
+  const el = document.getElementById('simNow');
+  el.style.display = ''; el.textContent = t('sim_arrived');
+}
+function simReset(silent) {
+  cancelAnimationFrame(simRaf);
+  simState = 'idle'; simDist = 0;
+  document.getElementById('simPlayBtn').textContent = t('sim_start');
+  const el = document.getElementById('simNow');
+  if (routeData) {
+    const p = routePositionAt(routeData.coords, routeData.cum, 0);
+    showSimPoint(p, 0, !silent);
+  } else { el.style.display = 'none'; }
+}
+function renderSimPos() {
+  const p = routePositionAt(routeData.coords, routeData.cum, simDist);
+  showSimPoint(p, simDist, true);
+}
+function showSimPoint(p, distM, live) {
+  if (!p) return;
+  const d = toDisplay(p.lat, p.lon);
+  if (!simMarker) { simMarker = L.circleMarker([d.lat, d.lon], { radius: 8, color: '#bf4520', fillColor: '#bf4520', fillOpacity: 0.9 }).addTo(map); }
+  else simMarker.setLatLng([d.lat, d.lon]);
+  if (live) map.panTo([d.lat, d.lon], { animate: true, duration: 0.3 });
+  const el = document.getElementById('simNow');
+  el.style.display = '';
+  el.textContent = t('sim_running', (distM / 1000).toFixed(2) + ' km / ' + (routeData ? (routeData.total / 1000).toFixed(2) : '0') + ' km') + ' · ' + p.lat.toFixed(5) + ', ' + p.lon.toFixed(5);
+}
+
+/* ---- 層級2：裝置定位模擬（真實資料通道 = 經 MITM 攔截的 SAVE_API route-* actions）
+   網頁動畫（上）與裝置模擬（下）是兩條獨立通道；這裡的每個狀態都來自實際呼叫結果，
+   呼叫失敗一律顯示錯誤，絕不假裝啟動成功。 ---- */
+let devSim = { active: false, paused: false, poll: null, starting: false };
+function devSimShape(coords) {
+  // 降採樣 ≤800 點（端點保真），polyline6 編碼
+  const stride = Math.max(1, Math.ceil(coords.length / 800));
+  const pts = [];
+  for (let i = 0; i < coords.length; i += stride) pts.push([coords[i].lat, coords[i].lon]);
+  const last = coords[coords.length - 1];
+  if (pts[pts.length - 1][0] !== last.lat || pts[pts.length - 1][1] !== last.lon) pts.push([last.lat, last.lon]);
+  return polylineEncode(pts, 1e6);
+}
+async function devSimApi(query) {
+  const r = await fetch(SAVE_API + '?' + query, { method: 'GET', mode: 'cors', cache: 'no-store', signal: AbortSignal.timeout(8000) });
+  const d = await r.json();
+  return d;
+}
+function devSimSetState(msg, isError) {
+  const el = document.getElementById('devSimState');
+  el.textContent = msg || '';
+  el.className = 'route-meta' + (isError ? ' is-error' : (msg ? ' is-ok' : ''));
+}
+function devSimRender() {
+  const btn = document.getElementById('devSimBtn'), stop = document.getElementById('devStopBtn');
+  btn.disabled = !routeData && !devSim.active;
+  if (!devSim.active) { btn.textContent = t('dev_start'); stop.style.display = 'none'; }
+  else { btn.textContent = devSim.paused ? t('dev_resume') : t('dev_pause'); stop.style.display = ''; }
+}
+async function deviceSimToggle() {
+  if (devSim.starting) return;
+  devSim.starting = true;
+  try {
+    if (!devSim.active) {
+      if (!routeData) { devSimSetState(t('route_need_pts'), true); return; }
+      const q = 'action=route-set&shape=' + encodeURIComponent(devSimShape(routeData.coords)) +
+        '&speed=' + (ROUTE_MODES[routeData.mode] || { baseSpeed: 1.4 }).baseSpeed +
+        '&mult=' + simSpeedFactor() + '&t0=' + Date.now() +
+        '&mode=' + routeData.mode + '&provider=' + routeData.provider;
+      devSimSetState(t('dev_writing'));
+      let d = null;
+      try { d = await devSimApi(q); } catch (e) { d = null; }
+      if (d && d.success) {
+        devSim.active = true; devSim.paused = false;
+        devSimSetState(t('dev_started'), false);
+        devSimPoll();
+      } else {
+        devSimSetState(t('dev_failed', (d && d.error) || t('dev_no_module')), true);
+      }
+    } else {
+      const wantPause = !devSim.paused;
+      let d2 = null;
+      try { d2 = await devSimApi('action=' + (wantPause ? 'route-pause' : 'route-resume')); } catch (e) { d2 = null; }
+      if (d2 && d2.success) {
+        devSim.paused = wantPause;
+        devSimSetState(wantPause ? t('dev_paused') : t('dev_resumed'));
+      } else {
+        devSimSetState(t('dev_failed', (d2 && d2.error) || t('dev_no_module')), true);
+      }
+    }
+  } finally {
+    devSim.starting = false;
+    devSimRender();
+  }
+}
+async function deviceSimStop() {
+  let d = null;
+  try { d = await devSimApi('action=route-clear'); } catch (e) { d = null; }
+  if (d && d.success) {
+    clearInterval(devSim.poll); devSim = { active: false, paused: false, poll: null, starting: false };
+    devSimSetState(t('dev_stopped'));
+  } else {
+    devSimSetState(t('dev_failed', (d && d.error) || t('dev_no_module')), true);
+  }
+  devSimRender();
+}
+function devSimPoll() {
+  clearInterval(devSim.poll);
+  devSim.poll = setInterval(async () => {
+    if (!devSim.active) return;
+    try {
+      const d = await devSimApi('action=route-status');
+      if (d && d.success) {
+        if (!d.active) { clearInterval(devSim.poll); devSim.active = false; devSimSetState(t('dev_gone')); }
+        else { devSim.paused = !!d.paused; devSimSetState(t('dev_active', d.mode, Number(d.speed) * Number(d.mult))); }
+      } else { devSimSetState(t('dev_status_fail'), true); }
+    } catch (e) { devSimSetState(t('dev_status_fail'), true); }
+    devSimRender();
+  }, 5000);
+}
+function deviceSimProbe() {
+  // 重載後探測裝置上是否已有進行中的模擬（不假設、不顯示未驗證狀態）
+  devSimApi('action=route-status').then(d => {
+    if (d && d.success && d.active) { devSim.active = true; devSim.paused = !!d.paused; devSimSetState(t('dev_active', d.mode, Number(d.speed) * Number(d.mult))); devSimPoll(); }
+  }).catch(() => {});
+  devSimRender();
+}
+
+// marker 延遲建立: 未選點時地圖上沒有假位置, 第一次 setPos 才放上去。
+let marker = null;
+
+// 地圖交互給出的都是「螢幕座標系」的讀數, 一律先過 fromDisplay 再進 setPos。
+map.on('click', e => { setPosFromDisplay(e.latlng.lat, e.latlng.lng); });
+
+function setPosFromDisplay(dLat, dLon) {
+  const w = fromDisplay(dLat, dLon);
+  // 路線「圖上點」武裝中：點位寫入起/終欄而非目標選點
+  if (routePickArm) { applyArmedPoint(w.lat, w.lon); return; }
+  setPos(w.lat, w.lon);
+}
+
+// 參數恆為 WGS84。
+function setPos(newLat, newLon) {
+  // 路線「圖上點」武裝中：搜尋/解析/定位等一切落點都寫入起/終欄（地址搜尋因此免費到位）
+  if (routePickArm) { applyArmedPoint(newLat, newLon); return; }
+  lat = newLat; lon = newLon; selected = true;
+  const d = toDisplay(lat, lon);
+  if (!marker) {
+    marker = L.marker([d.lat, d.lon], {draggable:true}).addTo(map);
+    marker.on('dragend', e => { const p=e.target.getLatLng(); setPosFromDisplay(p.lat, p.lng); });
+  } else {
+    marker.setLatLng([d.lat, d.lon]);
+  }
+  updateCoords();
+}
+
+function moveTo(newLat, newLon, zoom) {
+  setPos(newLat, newLon);
+  const d = toDisplay(lat, lon);
+  map.setView([d.lat, d.lon], zoom || 15);
+}
+
+function toast(msg, ms) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), ms || 1500);
+}
+
+let lastAction = null; // 'save' | 'query' — what the retry button re-runs
+function showError(show, action) {
+  if (action !== undefined) lastAction = action;
+  document.getElementById('errorBanner').style.display = show ? 'block' : 'none';
+}
+function retryLastAction() {
+  showError(false);
+  if (lastAction === 'query') queryActive(); else save();
+}
+// First-load query failure is a waiting state, not an error: neutral copy, no banner.
+function showQueryFailure(firstLoad) {
+  activeStatus = 'failed';
+  firstFail = !!firstLoad;
+  renderActive();
+  // 首次失敗 = 中性待機（activeValue 帶文案，下方既有「重新整理」鈕）; 手動失敗 = 橫幅當唯一錯誤面
+  if (!firstLoad) showError(true, 'query');
+}
+
+/* ---- Favorites (localStorage) ---- */
+function getFavs() {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch(e) { return []; }
+}
+function saveFavs(favs) {
+  localStorage.setItem(FAV_KEY, JSON.stringify(favs));
+}
+
+function renderFavs() {
+  const favs = getFavs();
+  const el = document.getElementById('favList');
+  const clearBtn = document.getElementById('clearAllBtn');
+  clearBtn.style.display = favs.length ? '' : 'none';
+  if (!favs.length) {
+    el.innerHTML = '<div class="fav-empty">' + escHtml(t('fav_empty')) + '<\/div>';
+    return;
+  }
+  el.innerHTML = favs.map((f, i) => {
+    const isActive = activeLon !== null && Math.abs(f.lon - activeLon) < 0.000001 && Math.abs(f.lat - activeLat) < 0.000001;
+    return '<div class="fav-item">' +
+      '<button type="button" class="fav-btn" onclick="loadFav(' + i + ')">' +
+        '<div class="fav-info">' +
+          '<div class="fav-name">' + escHtml(f.name) + '<\/div>' +
+          '<div class="fav-coords">' + f.lon.toFixed(6) + ', ' + f.lat.toFixed(6) + '<\/div>' +
+          (isActive ? '<div class="fav-active">' + escHtml(t('active_now')) + '<\/div>' : '') +
+        '<\/div>' +
+      '<\/button>' +
+      '<button type="button" class="fav-del" aria-label="' + escHtml(t('del')) + ' ' + escHtml(f.name) + '" onclick="delFav(' + i + ')" title="' + escHtml(t('del')) + '">\u00d7<\/button>' +
+    '<\/div>';
+  }).join('');
+}
+
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function addFav() {
+  if (!selected) { toast(t('pick_first')); return; }
+  document.getElementById('favModalCoords').textContent = lon.toFixed(6) + ', ' + lat.toFixed(6);
+  document.getElementById('favNameInput').value = '';
+  openFavModal();
+}
+
+function openFavModal() {
+  modalOpener = document.activeElement;
+  document.getElementById('favModal').classList.add('show');
+  document.getElementById('favNameInput').focus();
+}
+
+document.getElementById('favModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeFavModal(); });
+
+// P2-2: Esc 關閉 + Tab 循環（簡易 focus trap）; aria-modal 在 .modal 元素上。
+let modalOpener = null;
+document.addEventListener('keydown', e => {
+  const m = document.getElementById('favModal');
+  if (!m.classList.contains('show')) { if (e.key === 'Escape') toggleLayerPopover(false); return; }
+  if (e.key === 'Escape') { closeFavModal(); return; }
+  if (e.key === 'Tab') {
+    const items = m.querySelectorAll('.modal button, .modal input');
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+    else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+  }
+});
+
+function closeFavModal() {
+  document.getElementById('favModal').classList.remove('show');
+  if (modalOpener && modalOpener.focus) modalOpener.focus();
+  modalOpener = null;
+}
+
+function confirmFav() {
+  const name = document.getElementById('favNameInput').value.trim();
+  if (!name) { toast(t('enter_label')); return; }
+  const favs = getFavs();
+  favs.push({ name, lon, lat, time: new Date().toISOString() });
+  saveFavs(favs);
+  closeFavModal();
+  renderFavs();
+  toast(t('added', name));
+}
+
+function loadFav(i) {
+  const favs = getFavs();
+  if (!favs[i]) return;
+  moveTo(favs[i].lat, favs[i].lon, 15);
+  toast(favs[i].name + ' (' + favs[i].lon.toFixed(4) + ', ' + favs[i].lat.toFixed(4) + ')');
+}
+
+function delFav(i) {
+  const favs = getFavs();
+  if (!favs[i]) return;
+  const name = favs[i].name;
+  favs.splice(i, 1);
+  saveFavs(favs);
+  renderFavs();
+  toast(t('deleted', name));
+}
+
+function clearAllFav() {
+  if (!confirm(t('clear_fav_confirm'))) return;
+  saveFavs([]);
+  renderFavs();
+  toast(t('all_cleared'));
+}
+
+/* ---- Active location query ---- */
+function queryActive(firstLoad) {
+  activeStatus = 'querying';
+  renderActive();
+  fetch(SAVE_API + '?action=query', { method:'GET', mode:'cors', cache:'no-store', signal: AbortSignal.timeout(8000) })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success && d.longitude != null && d.latitude != null) {
+        activeLon = parseFloat(d.longitude);
+        activeLat = parseFloat(d.latitude);
+        activeAcc = d.accuracy || null;
+        activeStatus = 'ok'; firstFail = false;
+        const rr = d.randomRadius || 0;
+        document.getElementById('radiusInput').value = rr;
+      } else {
+        activeLon = null; activeLat = null; activeAcc = null;
+        activeStatus = 'none'; firstFail = false;
+      }
+      renderActive();
+      renderFavs();
+    })
+    .catch(() => { showQueryFailure(firstLoad); });
+}
+
+function clearActive() {
+  if (!confirm(t('clear_confirm'))) return;
+  fetch(SAVE_API + '?action=clear', { method:'GET', mode:'cors', cache:'no-store', signal: AbortSignal.timeout(8000) })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        activeLon = null; activeLat = null; activeAcc = null;
+        activeStatus = 'cleared';
+        renderActive();
+        renderFavs();
+        toast(t('dev_cleared'));
+      } else { toast(t('clear_failed', d.error || ''), 3000); }
+    })
+    .catch(() => { toast(t('clear_failed_cfg'), 3000); });
+}
+
+/* ---- Save to device ---- */
+async function save() {
+  if (!selected) { toast(t('pick_first')); return; }
+  const btn = document.getElementById('saveBtn');
+  const sbtn = document.getElementById('stickySave');
+  btn.classList.add('busy'); sbtn.classList.add('busy'); sbtn.disabled = true; sbtn.textContent = t('saving');
+  btn.textContent = t('saving'); btn.disabled = true;
+  showError(false);
+  try {
+    const radius = parseInt(document.getElementById('radiusInput').value) || 0;
+    const r = await fetch(SAVE_API + '?lon=' + lon + '&lat=' + lat + '&acc=25&randomRadius=' + radius, {
+      method: 'GET', mode: 'cors', cache: 'no-store', signal: AbortSignal.timeout(8000)
+    });
+    const d = await r.json();
+    if (d.success) {
+      activeLon = lon; activeLat = lat; activeAcc = 25; activeStatus = 'ok';
+      savedLon = lon; savedLat = lat;
+      savedTimeStr = new Date().toLocaleTimeString(lang === 'zh' ? 'zh-TW' : 'en-US');
+      btn.textContent = t('saved'); btn.className = 'btn btn-primary success';
+      sbtn.textContent = t('saved'); sbtn.className = 'btn btn-primary success';
+      updateStatus();
+      renderActive();
+      renderFavs();
+      toast(t('saved_toast'));
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        btn.textContent = t('save'); btn.className='btn btn-primary'; btn.disabled=false; btn.classList.remove('busy');
+        sbtn.textContent = t('save'); sbtn.className='btn btn-primary'; sbtn.classList.remove('busy'); sbtn.disabled=!selected;
+      }, 2500);
+    } else {
+      throw new Error(d.error || t('write_failed'));
+    }
+  } catch(e) {
+    btn.textContent = t('save'); btn.className = 'btn btn-primary'; btn.disabled = false; btn.classList.remove('busy');
+    sbtn.textContent = t('save'); sbtn.className = 'btn btn-primary'; sbtn.classList.remove('busy'); sbtn.disabled = !selected;
+    // P1b: the banner is the only error surface; toast no longer repeats it.
+    showError(true, 'save');
+  }
+}
+
+function locateMe() {
+  if (!navigator.geolocation) return toast(t('no_geo'));
+  toast(t('getting_loc'));
+  navigator.geolocation.getCurrentPosition(
+    pos => { moveTo(pos.coords.latitude, pos.coords.longitude, 16); toast(t('got_loc')); },
+    err => toast(t('loc_failed', err.message), 3000),
+    { enableHighAccuracy:true, timeout:10000 }
+  );
+}
+
+function parseMapUrl(text) {
+  let m;
+  m = text.match(/ll=([0-9.-]+),([0-9.-]+)/);
+  if (m) return { lat: parseFloat(m[1]), lon: parseFloat(m[2]) };
+  m = text.match(/@([0-9.-]+),([0-9.-]+)/);
+  if (m) return { lat: parseFloat(m[1]), lon: parseFloat(m[2]) };
+  m = text.match(/lnglat=([0-9.-]+),([0-9.-]+)/);
+  if (m) return { lat: parseFloat(m[2]), lon: parseFloat(m[1]) };
+  m = text.match(/(?:location|center)=([0-9.-]+),([0-9.-]+)/);
+  if (m) return { lat: parseFloat(m[2]), lon: parseFloat(m[1]) };
+  m = text.match(/(-?[0-9]+\.[0-9]+)[,\s]+(-?[0-9]+\.[0-9]+)/);
+  if (m) {
+    const a = parseFloat(m[1]), b = parseFloat(m[2]);
+    // 緯度絕對值不超過 90, 經度可達 180: 按絕對值判斷誰是經度, 否則
+    // -122.009 這類西經會被當成緯度 (-122 < 90 恆成立)。
+    if (Math.abs(a) <= 90 && Math.abs(b) > 90) return { lat: a, lon: b };
+    if (Math.abs(b) <= 90 && Math.abs(a) > 90) return { lat: b, lon: a };
+    return { lat: a, lon: b };
+  }
+  return null;
+}
+
+// 含連結的輸入交給伺服器端 /api/parse: 瀏覽器讀不到跨域 302 的 Location 頭, 短鏈
+// 只能由 worker 展開; 伺服器端還認 coordinate= 並按來源做 GCJ-02->WGS84 換算。
+// 純座標文本本地直接解析 —— 它也是唯一不需要座標系換算的輸入, 免去一次往返。
+async function parseUrl() {
+  const input = document.getElementById('urlInput').value.trim();
+  if (!input) return toast(t('paste_first'));
+
+  const low = input.toLowerCase();
+  if (low.includes('http://') || low.includes('https://')) {
+    toast(t('parsing'));
+    let data;
+    try {
+      const r = await fetch('https://wloc-spoofer.trend0522.workers.dev/api/parse?format=json&u=' + encodeURIComponent(input), { signal: AbortSignal.timeout(8000) });
+      data = await r.json();
+    } catch (e) {
+      toast(t('parse_unreachable'), 3000);
+      return;
+    }
+    if (!data || data.error || typeof data.lat !== 'number') {
+      toast(data && data.error ? data.error : t('parse_failed'), 3000);
+      return;
+    }
+    moveTo(data.lat, data.lon, 15);
+    toast(t('parsed', data.name, data.lon, data.lat));
+    return;
+  }
+
+  const result = parseMapUrl(input);
+  if (!result) { toast(t('parse_failed'), 3000); return; }
+  moveTo(result.lat, result.lon, 15);
+  toast(t('parsed', '', result.lon, result.lat));
+}
+
+async function searchPlace() {
+  const q = document.getElementById('searchInput').value.trim();
+  if (!q) return toast(t('enter_place'));
+  toast(t('searching'));
+  try {
+    // Worker route /api/search proxies Nominatim through the Cloudflare edge
+    // cache (7d). Browser-direct Nominatim hits its rate limits and policy.
+    const r = await fetch('https://wloc-spoofer.trend0522.workers.dev/api/search?q=' + encodeURIComponent(q), { signal: AbortSignal.timeout(8000) });
+    const d = await r.json();
+    const results = (d && d.results) || [];
+    if (!results.length) { toast(t('not_found', q), 3000); return; }
+    const p = results[0];
+    moveTo(p.lat, p.lon, 15);
+    toast(String(p.name || p.detail || '').slice(0, 40));
+  } catch(e) { toast(t('search_failed'), 3000); }
+}
+
+document.addEventListener('paste', e => {
+  const tgt = e.target;
+  if (tgt !== document.body && tgt !== document.getElementById('urlInput')) return;
+  const text = (e.clipboardData||window.clipboardData).getData('text');
+  if (!text) return;
+  if (!(text.includes('map') || text.includes('loc') || text.includes('lnglat') || /[0-9]+\.[0-9]+/.test(text))) return;
+  const input = document.getElementById('urlInput');
+  // If the paste target already IS this input, let the browser insert natively;
+  // assigning again would append the same text twice.
+  if (e.target !== input) input.value = text;
+  setTimeout(parseUrl, 200);
+});
+// --- Live search suggestions (Apple Notes-style: type-to-search, favorites
+//     first, keyboard selection, stale-response guard) ---
+const searchInputEl = document.getElementById('searchInput');
+const suggListEl = document.getElementById('suggList');
+let suggItems = [];
+let suggSel = -1;
+let suggQ = '';
+let suggSeq = 0;
+let suggTimer = null;
+
+function highlightSugg(text, q) {
+  if (!q) return escHtml(text);
+  const ti = text.toLowerCase(), qi = q.toLowerCase();
+  const idx = ti.indexOf(qi);
+  if (idx < 0) return escHtml(text);
+  return escHtml(text.slice(0, idx)) + '<mark>' + escHtml(text.slice(idx, idx + q.length)) + '</mark>' + escHtml(text.slice(idx + q.length));
+}
+
+function suggClose() {
+  clearTimeout(suggTimer);
+  suggItems = []; suggSel = -1; suggQ = '';
+  suggListEl.style.display = 'none';
+  suggListEl.innerHTML = '';
+}
+
+function renderSuggestions() {
+  if (!suggItems.length && !suggQ) { suggListEl.style.display = 'none'; return; }
+  if (!suggItems.length) {
+    suggListEl.innerHTML = '<div class="sugg-empty">' + escHtml(t('no_results', suggQ)) + '<\/div>';
+    suggListEl.style.display = '';
+    return;
+  }
+  suggListEl.innerHTML = suggItems.map((it, i) =>
+    '<div class="sugg-item' + (i === suggSel ? ' sel' : '') + '" data-i="' + i + '">' +
+      '<span class="s-tag">' + (it.fav ? '★' : '') + '</span>' +
+      '<span class="s-name">' + highlightSugg(it.name, suggQ) + '</span>' +
+    '<\/div>'
+  ).join('');
+  suggListEl.style.display = '';
+}
+
+function applySugg(i) {
+  const it = suggItems[i];
+  if (!it) return;
+  suggClose();
+  moveTo(it.lat, it.lon, 15);
+  toast(String(it.name || it.detail || '').slice(0, 40));
+}
+
+async function runLiveSearch() {
+  const q = searchInputEl.value.trim();
+  if (q.length < 2) { suggClose(); return; }
+  const seq = ++suggSeq;
+  const lq = q.toLowerCase();
+  const local = getFavs().filter(f => f.name && String(f.name).toLowerCase().includes(lq));
+  let remote = [];
+  try {
+    const r = await fetch('https://wloc-spoofer.trend0522.workers.dev/api/search?q=' + encodeURIComponent(q), { signal: AbortSignal.timeout(6000) });
+    if (r.ok) { const d = await r.json(); remote = (d && d.results) || []; }
+  } catch (e) {}
+  if (seq !== suggSeq) return; // a newer query superseded this one — discard
+  suggQ = q;
+  const seen = new Set();
+  suggItems = [];
+  for (const f of local) {
+    suggItems.push({ name: f.name, detail: f.lon.toFixed(6) + ', ' + f.lat.toFixed(6), lat: f.lat, lon: f.lon, fav: true });
+    seen.add(String(f.name).toLowerCase());
+  }
+  for (const p of remote) {
+    const nm = String(p.name || p.detail || '').trim();
+    if (!nm || seen.has(nm.toLowerCase())) continue;
+    suggItems.push({ name: nm, detail: p.detail, lat: p.lat, lon: p.lon, fav: false });
+    if (suggItems.length >= 8) break;
+  }
+  suggSel = suggItems.length ? 0 : -1;
+  renderSuggestions();
+}
+
+function scheduleSuggest() {
+  clearTimeout(suggTimer);
+  if (searchInputEl.value.trim().length < 2) { suggClose(); return; }
+  suggTimer = setTimeout(runLiveSearch, 250);
+}
+
+searchInputEl.addEventListener('input', scheduleSuggest);
+searchInputEl.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!suggItems.length) return;
+    e.preventDefault();
+    suggSel = (suggSel + (e.key === 'ArrowDown' ? 1 : suggItems.length - 1)) % suggItems.length;
+    renderSuggestions();
+    return;
+  }
+  if (e.key === 'Escape') { suggClose(); return; }
+  if (e.key === 'Enter') {
+    if (suggSel >= 0) { e.preventDefault(); applySugg(suggSel); return; }
+    searchPlace();
+  }
+});
+searchInputEl.addEventListener('blur', () => { setTimeout(suggClose, 150); });
+suggListEl.addEventListener('mousedown', e => {
+  const item = e.target.closest('.sugg-item');
+  if (!item) return;
+  e.preventDefault(); // keep focus in the input
+  applySugg(Number(item.dataset.i));
+});
+document.getElementById('urlInput').addEventListener('keydown', e => { if(e.key==='Enter') parseUrl(); });
+document.getElementById('favNameInput').addEventListener('keydown', e => { if(e.key==='Enter') confirmFav(); });
+
+applyTheme();
+applyI18n();
+queryActive(true);
+syncSticky();
+loadMapCfg();
+renderStyleSel();
+applyMapCfgUI();
+simSpeedChanged();
+deviceSimProbe();
+</script>
+</body>
+</html>
