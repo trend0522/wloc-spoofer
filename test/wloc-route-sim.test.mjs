@@ -170,6 +170,32 @@ test("案例5：抵達終點後停留", () => {
   assert.ok(Math.abs(a.latitude - 0.01) < 1e-9 && Math.abs(b.latitude - a.latitude) < 1e-12, "終點=shape 末點且不再前進");
 });
 
+test("案例5b：route-status 裝置權威推算——pos/距離/arrived/deviceNow 正確，UI 有單一回讀源", () => {
+  FakeDate._now = T0 + 100000;
+  const store = makeStore();
+  runSettings(store, routeUrl());
+  let st = runSettings(store, "https://gs-loc.apple.com/wloc-settings/save?action=route-status");
+  assert.equal(st.active, true); assert.equal(st.arrived, false);
+  assert.equal(st.deviceNow, T0 + 100000, "deviceNow 用裝置時鐘(同一 FakeDate)");
+  // 100s × 1m/s = 100m ≈ 0.000899° —— 與讀端 Ze() 此刻輸出必須一致（同公式同鐘）
+  const { Ze } = runWloc(store, ARG);
+  const z = Ze();
+  assert.ok(Math.abs(st.pos.lat - z.latitude) < 1e-6 && Math.abs(st.pos.lon - z.longitude) < 1e-6, "status.pos == 讀端當下座標: " + JSON.stringify(st.pos) + " vs " + z.latitude);
+  assert.ok(st.distM > 90 && st.distM < 110, "distM≈100: " + st.distM);
+  // 抵達後 arrived=true（UI 據此翻按鈕/停輪詢）
+  FakeDate._now = T0 + 9999999;
+  st = runSettings(store, "https://gs-loc.apple.com/wloc-settings/save?action=route-status");
+  assert.equal(st.arrived, true, "終點後 route-status 必報 arrived");
+  // 暫停中 pos 仍回傳（凍結點），paused=true
+  FakeDate._now = T0 + 60000;
+  runSettings(store, routeUrl()); // 重設
+  runSettings(store, "https://gs-loc.apple.com/wloc-settings/save?action=route-pause");
+  FakeDate._now = T0 + 560000;
+  st = runSettings(store, "https://gs-loc.apple.com/wloc-settings/save?action=route-status");
+  assert.equal(st.paused, true);
+  assert.ok(Math.abs(st.pos.lat - 0.000539) < 1e-5, "暫停推算=暫停時刻位置(60m≈0.000539°): " + st.pos.lat);
+});
+
 test("案例6+9：route-clear 後回復單點模式；wloc_settings 全程不受影響", () => {
   FakeDate._now = T0;
   const store = makeStore();

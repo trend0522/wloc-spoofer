@@ -415,6 +415,9 @@ const I18N = {
     dev_active: function(m, v){ return '裝置模擬進行中：' + m + ' · ' + v.toFixed(1) + ' m/s'; },
     dev_gone: '裝置上已無進行中的路線模擬', dev_status_fail: '無法取得裝置模擬狀態（模組未連線？)',
     dev_failed: function(e){ return '✗ 裝置模擬操作失敗：' + e; },
+    dev_arrived: '已抵達終點', dev_at_endpoint: '✓ 已抵達終點並停留；裝置定位凍結在終點，直到你「停止並清除」',
+    dev_frozen: ' · 暫停中，位置凍結', dev_nextpos: function(p){ return '下次定位將回傳 ' + p; },
+    dev_skew: function(s){ return '（注意：網頁與裝置時鐘差 ' + s + ' 秒）'; },
     dev_no_module: '代理模組未回應——請確認已安裝 WLOC 模組且 MITM 生效'
   },
   en: {
@@ -497,6 +500,9 @@ const I18N = {
     dev_active: function(m, v){ return 'Device simulation active: ' + m + ' · ' + v.toFixed(1) + ' m/s'; },
     dev_gone: 'No route simulation active on the device anymore', dev_status_fail: 'Cannot read device simulation state (module offline?)',
     dev_failed: function(e){ return '✗ Device simulation operation failed: ' + e; },
+    dev_arrived: 'Arrived', dev_at_endpoint: '✓ Arrived and holding; the device location stays frozen at the endpoint until you “Stop & Clear”',
+    dev_frozen: ' · Paused, position frozen', dev_nextpos: function(p){ return 'next fix will return ' + p; },
+    dev_skew: function(s){ return ' (note: page vs device clock off by ' + s + 's)'; },
     dev_no_module: 'Proxy module not responding — make sure the WLOC module is installed and MITM is active'
   }
 };
@@ -988,7 +994,7 @@ function showSimPoint(p, distM, live) {
 /* ---- 層級2：裝置定位模擬（真實資料通道 = 經 MITM 攔截的 SAVE_API route-* actions）
    網頁動畫（上）與裝置模擬（下）是兩條獨立通道；這裡的每個狀態都來自實際呼叫結果，
    呼叫失敗一律顯示錯誤，絕不假裝啟動成功。 ---- */
-let devSim = { active: false, paused: false, poll: null, starting: false };
+let devSim = { active: false, paused: false, arrived: false, poll: null, starting: false };
 function devSimShape(coords) {
   // 降採樣 ≤800 點（端點保真），polyline6 編碼
   const stride = Math.max(1, Math.ceil(coords.length / 800));
@@ -1010,8 +1016,9 @@ function devSimSetState(msg, isError) {
 }
 function devSimRender() {
   const btn = document.getElementById('devSimBtn'), stop = document.getElementById('devStopBtn');
-  btn.disabled = !routeData && !devSim.active;
-  if (!devSim.active) { btn.textContent = t('dev_start'); stop.style.display = 'none'; }
+  btn.disabled = (!routeData && !devSim.active) || devSim.arrived;
+  if (devSim.arrived) { btn.textContent = t('dev_arrived'); btn.disabled = true; stop.style.display = ''; }
+  else if (!devSim.active) { btn.textContent = t('dev_start'); stop.style.display = 'none'; }
   else { btn.textContent = devSim.paused ? t('dev_resume') : t('dev_pause'); stop.style.display = ''; }
 }
 async function deviceSimToggle() {
@@ -1028,7 +1035,7 @@ async function deviceSimToggle() {
       let d = null;
       try { d = await devSimApi(q); } catch (e) { d = null; }
       if (d && d.success) {
-        devSim.active = true; devSim.paused = false;
+        devSim.active = true; devSim.paused = false; devSim.arrived = false;
         devSimSetState(t('dev_started'), false);
         devSimPoll();
       } else {
@@ -1054,46 +1061,51 @@ async function deviceSimStop() {
   let d = null;
   try { d = await devSimApi('action=route-clear'); } catch (e) { d = null; }
   if (d && d.success) {
-    clearInterval(devSim.poll); devSim = { active: false, paused: false, poll: null, starting: false };
+    clearInterval(devSim.poll); devSim = { active: false, paused: false, arrived: false, poll: null, starting: false };
     devSimSetState(t('dev_stopped'));
   } else {
     devSimSetState(t('dev_failed', (d && d.error) || t('dev_no_module')), true);
   }
   devSimRender();
 }
+function devSimApplyStatus(d) {
+  // 單一狀態來源：按鈕、狀態文字、地圖 marker、進度列全部只看 route-status（裝置權威）
+  devSim.paused = !!d.paused;
+  devSim.arrived = !!d.arrived;
+  let txt = '';
+  if (d.arrived) txt = t('dev_at_endpoint');
+  else if (d.paused) txt = t('dev_active', d.mode, Number(d.speed) * Number(d.mult)) + t('dev_frozen');
+  else if (d.pos) txt = t('dev_active', d.mode, Number(d.speed) * Number(d.mult)) + ' · ' + t('dev_nextpos', d.pos.lat.toFixed(5) + ', ' + d.pos.lon.toFixed(5)) + ' · ' + Math.round(d.distM) + '/' + d.totalM + 'm';
+  else txt = t('dev_active', d.mode, Number(d.speed) * Number(d.mult));
+  // 附加時鐘差診斷（裝置 deviceNow vs 手機 Date.now，同機應≈0；>5s 即不同步）
+  if (d.deviceNow) { const skew = Math.round((Date.now() - d.deviceNow) / 1000) * 1000; if (Math.abs(skew) > 5000) txt += t('dev_skew', skew / 1000); }
+  devSimSetState(txt, false);
+  // 地圖：裝置模式中，橙點由 route-status 驅動（非本地動畫）
+  if (d.pos) showSimPoint(d.pos, d.distM || 0, false);
+  devSimRender();
+}
 function devSimPoll() {
   clearInterval(devSim.poll);
-  devSim.poll = setInterval(async () => {
+  const once = async () => {
     if (!devSim.active) return;
     try {
       const d = await devSimApi('action=route-status');
       if (d && d.success) {
-        if (!d.active) { clearInterval(devSim.poll); devSim.active = false; devSimSetState(t('dev_gone')); }
-        else {
-          devSim.paused = !!d.paused;
-          var expect = '';
-          try {
-            // 依裝置同一時鐘推算「下一次定位請求時腳本將回傳的座標」——通道診斷用，非動畫
-            if (!d.paused) {
-              const pts = decodePolyline(d.shape, 1e6);
-              const cm = routeCumulative(pts);
-              const elapsedMs = Date.now() - d.t0 - (d.pausedMs || 0);
-              const dist = Math.min(cm[cm.length - 1], Math.max(0, elapsedMs / 1000) * d.speed * d.mult);
-              const pos = routePositionAt(pts, cm, dist);
-              if (pos) expect = ' · 下次定位預期 ' + pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5);
-            } else { expect = ' · 暫停中，位置凍結'; }
-          } catch (e) {}
-          devSimSetState(t('dev_active', d.mode, Number(d.speed) * Number(d.mult)) + expect);
-        }
+        if (!d.active) { clearInterval(devSim.poll); devSim.active = false; devSim.arrived = false; devSimSetState(t('dev_gone')); devSimRender(); return; }
+        devSimApplyStatus(d);
+        if (d.arrived) clearInterval(devSim.poll); // 抵達後停止推進與輪詢，直到使用者明確停止/清除
       } else { devSimSetState(t('dev_status_fail'), true); }
     } catch (e) { devSimSetState(t('dev_status_fail'), true); }
-    devSimRender();
-  }, 5000);
+  };
+  once();
+  devSim.poll = setInterval(once, 5000);
+  // Safari 回前台立即補一次（背景分頁 timer 被凍結是常態，不是通道故障）
+  if (!window.__devsimVisHook) { window.__devsimVisHook = true; document.addEventListener('visibilitychange', () => { if (!document.hidden && devSim.active && !devSim.arrived) once(); }); }
 }
 function deviceSimProbe() {
   // 重載後探測裝置上是否已有進行中的模擬（不假設、不顯示未驗證狀態）
   devSimApi('action=route-status').then(d => {
-    if (d && d.success && d.active) { devSim.active = true; devSim.paused = !!d.paused; devSimSetState(t('dev_active', d.mode, Number(d.speed) * Number(d.mult))); devSimPoll(); }
+    if (d && d.success && d.active) { devSim.active = true; devSimPoll(); }
   }).catch(() => {});
   devSimRender();
 }

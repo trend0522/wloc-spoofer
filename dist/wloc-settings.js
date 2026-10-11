@@ -12,8 +12,8 @@ const e=(()=>{const e=e=>e in globalThis;switch(!0){case e("$task"):return"Quant
 var WLOC_ROUTE_KEY = "wloc_route";
 
 // polyline6 解碼計點（寫入端第一道；截斷/超點數回 null）
-function wlocRouteCountPoints(str) {
-  var count = 0, index = 0, lat = 0, lon = 0, len = str.length;
+function wlocRouteDecodePoints(str) {
+  var pts = [], index = 0, lat = 0, lon = 0, len = str.length;
   while (index < len) {
     var b, shift = 0, result = 0;
     do { if (index >= len) return null; b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
@@ -23,11 +23,12 @@ function wlocRouteCountPoints(str) {
     do { if (index >= len) return null; b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
     lon += (result & 1) ? ~(result >> 1) : (result >> 1);
     if (Math.abs(lon) > 180000000) return null;
-    count++;
-    if (count > 800) return null;
+    pts.push({ lat: lat / 1e6, lon: lon / 1e6 });
+    if (pts.length > 800) return null;
   }
-  return count >= 2 ? count : null;
+  return pts.length >= 2 ? pts : null;
 }
+function wlocRouteCountPoints(str) { var p = wlocRouteDecodePoints(str); return p ? p.length : null; }
 
 function wlocRouteValidate(params) {
   var shape = params.get("shape") || "";
@@ -78,7 +79,30 @@ function wlocRouteHandle(action, params, store, log) {
     if (action === "route-status") {
       var st = store.getItem(WLOC_ROUTE_KEY);
       if (!st || st.v !== 1) return { success: true, active: false };
-      return { success: true, active: true, mode: st.mode, speed: st.speed, mult: st.mult, t0: st.t0, pausedMs: st.pausedMs || 0, paused: !!st.pauseStart, shape: st.shape };
+      var out = { success: true, active: true, mode: st.mode, speed: st.speed, mult: st.mult, t0: st.t0, pausedMs: st.pausedMs || 0, paused: !!st.pauseStart, shape: st.shape, deviceNow: Date.now() };
+      // 裝置視角的權威推算（與 wloc.js 讀端同公式同裝置時鐘）：
+      try {
+        var pts = wlocRouteDecodePoints(st.shape);
+        if (pts) {
+          var R = 6371000, p = Math.PI / 180, cum = [0], i;
+          for (i = 1; i < pts.length; i++) {
+            var dLat = (pts[i].lat - pts[i - 1].lat) * p, dLon = (pts[i].lon - pts[i - 1].lon) * p;
+            var s2 = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(pts[i - 1].lat * p) * Math.cos(pts[i].lat * p) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            cum.push(cum[i - 1] + 2 * R * Math.asin(Math.sqrt(s2)));
+          }
+          var total = cum[cum.length - 1];
+          var elapsedMs = out.deviceNow - st.t0 - out.pausedMs - (st.pauseStart ? Math.max(0, out.deviceNow - st.pauseStart) : 0);
+          if (elapsedMs < 0) elapsedMs = 0;
+          var dist = (elapsedMs / 1000) * Number(st.speed) * Number(st.mult);
+          if (dist > total) dist = total;
+          var k = 1; while (k < cum.length && cum[k] < dist) k++;
+          var seg = cum[k] - cum[k - 1], f = seg > 0 ? (dist - cum[k - 1]) / seg : 0;
+          out.pos = { lat: pts[k - 1].lat + (pts[k].lat - pts[k - 1].lat) * f, lon: pts[k - 1].lon + (pts[k].lon - pts[k - 1].lon) * f };
+          out.distM = Math.round(dist); out.totalM = Math.round(total);
+          out.arrived = dist >= total;
+        }
+      } catch (e) {}
+      return out;
     }
     return null; // 非 route action → 交回原邏輯
   } catch (e) {
