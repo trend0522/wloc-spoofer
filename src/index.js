@@ -5,8 +5,16 @@ import { parseCoords, gcj02ToWgs84, toWgs84, round6, inRange } from "./parse.js"
 const app = new Hono();
 
 app.get("/", (c) => {
+  // The page is a static template; a short edge/browser cache keeps repeat loads cheap
+  // while letting deploys propagate within minutes.
+  c.header("Cache-Control", "public, max-age=300");
   return c.html(getPageHtml());
 });
+
+// Limits on caller-supplied input. A map share link (even with a pasted place name in
+// front of it) is far below 2 KB; anything longer is not a link we can use.
+const MAX_PARSE_INPUT = 2048;
+const MAX_SEARCH_QUERY = 200;
 
 // Map link parsing: called by the iOS Shortcut and the picker page.
 // GET /api/parse?u=<link>&format=json&cs=<gcj|bd|none>
@@ -16,6 +24,10 @@ app.get("/api/parse", async (c) => {
   const raw = c.req.query("u") || "";
   const cs = (c.req.query("cs") || "").toLowerCase();
   const fmt = (c.req.query("format") || "").toLowerCase();
+  if (raw.length > MAX_PARSE_INPUT) {
+    c.header("Access-Control-Allow-Origin", "*");
+    return c.json({ error: "輸入過長(上限 2KB)" }, 413);
+  }
   try {
     let { lat, lon, name, src } = await parseCoords(raw);
     // Default: convert by detected source. cs=none forces no conversion, cs=gcj/bd forces one.
@@ -46,7 +58,7 @@ app.get("/api/parse", async (c) => {
 //   (rate limits + usage policy).
 app.get("/api/search", async (c) => {
   c.header("Access-Control-Allow-Origin", "*");
-  const q = (c.req.query("q") || "").trim();
+  const q = (c.req.query("q") || "").trim().slice(0, MAX_SEARCH_QUERY);
   if (q.length < 2) return c.json({ results: [] });
 
   const cache = caches.default;
@@ -54,23 +66,29 @@ app.get("/api/search", async (c) => {
     `https://wloc.search.cache/?q=${encodeURIComponent(q.toLowerCase())}`
   );
   const cached = await cache.match(cacheKey);
-  if (cached) return c.json(await cached.json());
+  if (cached) {
+    // Return the cached response as-is (no JSON re-parse); add CORS on a mutable copy.
+    const res = new Response(cached.body, cached);
+    res.headers.set("Access-Control-Allow-Origin", "*");
+    return res;
+  }
 
   const api =
     `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&q=${encodeURIComponent(q)}`;
   let raw;
   try {
     const resp = await fetch(api, {
+      signal: AbortSignal.timeout(8000),
       headers: {
         // Nominatim's usage policy requires a caller-identifying UA; requests without one get refused.
         "User-Agent": "wloc-ios-place-search/1.0",
         "Accept-Language": "zh-Hant,zh-TW,zh,en",
       },
     });
-    if (!resp.ok) return c.json({ results: [] });
+    if (!resp.ok) return c.json({ results: [], error: "upstream_error" }, 502);
     raw = await resp.json();
   } catch {
-    return c.json({ results: [] });
+    return c.json({ results: [], error: "upstream_error" }, 502);
   }
 
   const results = (Array.isArray(raw) ? raw : [])
@@ -83,6 +101,9 @@ app.get("/api/search", async (c) => {
     .filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lon));
 
   const payload = { results };
+  // Cache only non-empty results: an empty answer may be a transient upstream hiccup,
+  // and pinning it for 7 days would hide the place from every later search.
+  if (results.length === 0) return c.json(payload);
   // Store a TTL'd copy; waitUntil does not block this response.
   c.executionCtx.waitUntil(
     cache.put(

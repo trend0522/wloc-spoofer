@@ -13,6 +13,9 @@ import {
   wgs84ToGcj02,
   gcj02ToWgs84,
   usesWgs84Locally,
+  inMainlandChina,
+  isAllowedHost,
+  parseCoords,
   inRange,
   round6,
 } from "../src/parse.js";
@@ -265,6 +268,110 @@ test("港澳台判定不得波及大陸其它城市", () => {
 test("境外座標不做 GCJ 換算 (out_of_china)", () => {
   const apple = { lat: 37.334859, lon: -122.00904 };
   assert.deepEqual(toWgs84(apple.lat, apple.lon, "apple"), apple);
+});
+
+// ── 粗矩形內的鄰國城市 ─────────────────────────────────────────────
+// gcjOutOfChina 的矩形把整個東亞/東南亞/南亞都圈進去; 蘋果/Google 在這些地方發的
+// 是 WGS84, 反算一次會偏 160~540 米。
+test("迴歸: 首爾/大阪/新加坡的蘋果/Google 座標不得做 GCJ 反算", () => {
+  const 境外 = [
+    ["首爾 市廳", 37.5665, 126.978],
+    ["大阪 梅田", 34.7025, 135.4959],
+    ["新加坡 濱海灣", 1.2834, 103.8607],
+  ];
+  for (const [名, lat, lon] of 境外) {
+    const p = { lat, lon };
+    for (const src of ["apple", "google"]) {
+      assert.ok(usesWgs84Locally(lat, lon, src), `${名} ${src} 應走 WGS84 直通`);
+      assert.deepEqual(toWgs84(lat, lon, src), p, `${名} ${src} 應原樣回傳`);
+    }
+  }
+});
+
+test("大陸多邊形: 鄰國城市在外, 大陸邊陲城市在內", () => {
+  const 外 = [
+    ["首爾", 37.5665, 126.978], ["釜山", 35.18, 129.08], ["平壤", 39.03, 125.75],
+    ["大阪", 34.6937, 135.5023], ["福岡", 33.59, 130.4], ["那霸", 26.21, 127.68],
+    ["德里", 28.61, 77.21], ["加德滿都", 27.7, 85.32], ["達卡", 23.81, 90.41],
+    ["馬尼拉", 14.6, 120.98], ["曼谷", 13.75, 100.5], ["新加坡", 1.3521, 103.8198],
+    ["河內", 21.03, 105.85], ["仰光", 16.8, 96.15], ["烏蘭巴托", 47.92, 106.92],
+    ["海參崴", 43.12, 131.89], ["阿拉木圖", 43.24, 76.89], ["台北", 25.03, 121.56],
+  ];
+  const 內 = [
+    ["北京", 39.9, 116.4], ["上海", 31.23, 121.47], ["深圳", 22.54, 113.95],
+    ["三亞", 18.25, 109.5], ["烏魯木齊", 43.83, 87.62], ["喀什", 39.47, 75.99],
+    ["拉薩", 29.65, 91.17], ["漠河", 52.97, 122.54], ["琿春", 42.87, 130.36],
+    ["丹東", 40.12, 124.38], ["昆明", 25.04, 102.71], ["滿洲里", 49.6, 117.43],
+    ["二連浩特", 43.65, 111.98], ["黑河", 50.24, 127.49], ["撫遠", 48.36, 134.29],
+  ];
+  for (const [名, lat, lon] of 外) assert.ok(!inMainlandChina(lat, lon), `${名} 被誤判為大陸`);
+  for (const [名, lat, lon] of 內) {
+    assert.ok(inMainlandChina(lat, lon), `${名} 未被辨識為大陸`);
+    assert.ok(!usesWgs84Locally(lat, lon, "apple"), `${名} 蘋果應做 GCJ 換算`);
+  }
+});
+
+test("鄰國座標: 高德/百度來源仍照舊換算 (不受大陸判定影響)", () => {
+  const seoul = { lat: 37.5665, lon: 126.978 };
+  assert.ok(!usesWgs84Locally(seoul.lat, seoul.lon, "amap"));
+  assert.ok(distMeters(toWgs84(seoul.lat, seoul.lon, "amap"), seoul) > 100);
+});
+
+// ── /api/parse 主機白名單 ──────────────────────────────────────────
+test("主機白名單: 只放行已知地圖服務, 尾綴必須帶點", () => {
+  for (const h of [
+    "maps.apple.com", "surl.amap.com", "uri.amap.com", "amap.com", "map.baidu.com",
+    "j.map.baidu.com", "maps.app.goo.gl", "goo.gl", "www.google.com", "maps.google.com",
+  ]) assert.ok(isAllowedHost(h), `${h} 應放行`);
+  for (const h of [
+    "example.com", "evilamap.com", "amap.com.evil.io", "notbaidu.com", "google.com.hk.evil",
+    "apple.com", "x.goo.gl", "localhost",
+  ]) assert.ok(!isAllowedHost(h), `${h} 不應放行`);
+});
+
+async function withFetch(fake, fn) {
+  const orig = globalThis.fetch;
+  globalThis.fetch = fake;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = orig;
+  }
+}
+
+test("parseCoords: 白名單外的主機不發出任何請求", async () => {
+  let called = 0;
+  await withFetch(async () => { called++; throw new Error("不該被調用"); }, async () => {
+    await assert.rejects(parseCoords("https://example.com/abc"), /不支援的連結來源/);
+  });
+  assert.equal(called, 0);
+});
+
+test("parseCoords: 每一跳重新導向都檢查白名單", async () => {
+  const seen = [];
+  const fake = async (u) => {
+    seen.push(String(u));
+    // 白名單內的短鏈跳去白名單外 —— 下一跳不得被請求。
+    return new Response(null, { status: 302, headers: { location: "https://evil.example/next" } });
+  };
+  await withFetch(fake, async () => {
+    await assert.rejects(parseCoords("https://maps.app.goo.gl/xyz"));
+  });
+  assert.deepEqual(seen, ["https://maps.app.goo.gl/xyz"]);
+});
+
+test("parseCoords: 白名單內的多跳重新導向照常展開", async () => {
+  const fake = async (u) => {
+    if (String(u).startsWith("https://surl.amap.com/")) {
+      return new Response(null, { status: 302, headers: { location: "https://wb.amap.com/redirect" } });
+    }
+    return new Response(null, {
+      status: 302,
+      headers: { location: "https://uri.amap.com/marker?position=113.951072,22.544865&name=x" },
+    });
+  };
+  const hit = await withFetch(fake, () => parseCoords("https://surl.amap.com/abc"));
+  near(hit, { lat: 22.544865, lon: 113.951072, src: "amap" });
 });
 
 test("gcj02ToWgs84 是 wgs84ToGcj02 的逆運算, 殘差 < 0.1 米", () => {

@@ -98,10 +98,11 @@ function googleName(str) {
   return m ? safeDecode(m[1]).replace(/\+/g, " ").trim() : "";
 }
 
-// /api/parse 會去 fetch 調用方給的任意 URL。Workers 出網到不了內網, 所以經典的
+// /api/parse 會去 fetch 調用方給的 URL。Workers 出網到不了內網, 所以經典的
 // SSRF(打內網/元資料服務)基本不成立, 剩下的風險是資源耗盡 —— 一個永不結束的回應
-// 能把子請求掛死, 一個幾百 MB 的回應能把 128 MB 的 Worker 記憶體打爆。下面兩個常量
-// 和 isFetchable() 擋的就是這個, 而不是"防止訪問某些站點"。
+// 能把子請求掛死, 一個幾百 MB 的回應能把 128 MB 的 Worker 記憶體打爆 —— 以及被當成
+// 通用代理去打任意站點。下面兩個常量擋前者, isFetchable() 裡的主機白名單擋後者;
+// 白名單在每一跳重新導向上都會重新檢查, 防止白名單內的短鏈跳去任意主機。
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_BODY_BYTES = 512 * 1024;
 
@@ -116,7 +117,18 @@ function isFetchable(u) {
   const h = url.hostname.toLowerCase();
   if (h === "localhost" || h.endsWith(".local") || h.endsWith(".internal")) return false;
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.startsWith("[")) return false; // IP 字面量
-  return true;
+  return isAllowedHost(h);
+}
+
+// 只跟隨已知地圖服務的連結。精確主機 + 尾綴匹配(".amap.com" 必須帶點,
+// 否則 evilamap.com 也會被放行)。
+const ALLOWED_HOSTS = ["maps.apple.com", "surl.amap.com", "maps.app.goo.gl", "goo.gl"];
+const ALLOWED_SUFFIXES = ["amap.com", "baidu.com", "google.com"];
+
+export function isAllowedHost(host) {
+  const h = String(host || "").toLowerCase().replace(/\.$/, "");
+  if (ALLOWED_HOSTS.includes(h)) return true;
+  return ALLOWED_SUFFIXES.some((d) => h === d || h.endsWith("." + d));
 }
 
 // 只讀前 MAX_BODY_BYTES, 讀滿就掐掉連接。座標總在頁面靠前的位置, 讀全文沒有收益。
@@ -166,7 +178,11 @@ export async function parseCoords(raw) {
 
   if (urlMatch) {
     let cur = target;
+    if (!isFetchable(cur)) {
+      throw new Error("不支援的連結來源(僅支援蘋果地圖、高德、百度、Google 地圖)");
+    }
     for (let i = 0; i < 5; i++) {
+      // 每一跳都重新檢查主機白名單: 白名單內的短鏈可能被導向任意站點。
       if (!isFetchable(cur)) break;
       let resp;
       try {
@@ -314,9 +330,43 @@ function inTaiwan(lat, lon) {
   return lat >= 21.85 && lat <= 25.35 && lon >= 119.3 && lon <= 122.1;
 }
 
+// ---- 中國大陸範圍: 蘋果/Google 只在大陸用 GCJ-02 ----
+//
+// gcjOutOfChina 的粗矩形(經度 72~138, 緯度 0.8~55.8)把首爾、大阪、德里、馬尼拉、
+// 曼谷、新加坡都圈在裡面, 蘋果/Google 在這些地方發的是 WGS84, 白做一次反算會偏
+// 160~540 米。這裡用一個粗略的大陸國界多邊形判斷: 沿陸地邊界略往外放, 海上沿近海
+// 走, 保證不吞掉朝鮮半島、日本、台灣、東南亞、南亞的城市。港澳另由上面的專門判定處理。
+// 注意 gcjOutOfChina 本身不改 —— 高德/百度的換算與選點頁的瀏覽器鏡像都依賴它。
+// 點是 [經度, 緯度], 自喀什以西起逆時針繞一圈。口岸城市(丹東/新義州、東興/芒街等)
+// 兩側幾公里內可能判錯, 與上面香港多邊形同理。
+const MAINLAND_POLY = [
+  [73.5, 39.5], [74.5, 37.0], [77.8, 35.6], [78.9, 32.5], [79.0, 31.0],
+  [81.0, 30.2], [85.0, 28.4], [88.0, 27.95], [88.9, 27.4], [89.6, 28.2],
+  [91.6, 27.85], [94.5, 29.2], [96.0, 29.0], [97.3, 28.2], [98.6, 27.6],
+  [98.7, 25.8], [97.6, 24.8], [97.6, 23.9], [98.9, 23.2], [99.5, 22.1],
+  [100.2, 21.4], [101.2, 21.2], [101.8, 22.4], [103.0, 22.55], [103.95, 22.5], [104.4, 22.8],
+  [105.3, 23.3], [106.2, 22.9], [106.7, 22.0], [107.4, 21.6], [108.05, 21.535],
+  [108.4, 18.0], [109.5, 17.8], [111.5, 18.5], [111.5, 19.8], [113.5, 21.5],
+  [116.5, 22.5], [117.5, 22.9], [119.2, 24.5], [120.5, 26.5], [122.5, 28.5],
+  [123.0, 31.0], [122.5, 34.0], [123.0, 37.0], [122.0, 39.0], [124.2, 39.8],
+  [125.5, 40.9], [126.9, 41.8], [128.2, 41.4], [129.0, 42.0], [130.6, 42.4],
+  [131.0, 43.0], [131.2, 44.8], [133.1, 45.1], [134.75, 48.45], [134.0, 48.42], [132.5, 47.75],
+  [130.7, 48.9], [127.65, 50.2], [127.35, 50.33], [125.0, 53.2], [121.0, 53.3], [119.5, 50.0],
+  [117.9, 49.6], [117.38, 49.62], [116.6, 49.9], [115.5, 48.1], [116.1, 47.3], [118.6, 47.8],
+  [119.8, 46.7], [116.5, 46.3], [113.6, 44.8], [111.6, 43.5], [107.0, 42.3],
+  [101.0, 42.6], [96.0, 42.7], [95.3, 44.2], [91.0, 45.2], [90.7, 47.6],
+  [88.0, 49.0], [87.3, 49.2], [85.5, 47.1], [82.5, 45.4], [80.2, 45.0],
+  [80.0, 42.5], [76.0, 40.4],
+];
+
+export function inMainlandChina(lat, lon) {
+  return pointInPoly(lat, lon, MAINLAND_POLY);
+}
+
 // 該來源在該位置是否直接提供 WGS84(即不需要做 GCJ 反算)。
 export function usesWgs84Locally(lat, lon, src) {
   if (src !== "apple" && src !== "google") return false;
+  if (!inMainlandChina(lat, lon)) return true;
   return inMacau(lat, lon) || inTaiwan(lat, lon) || pointInPoly(lat, lon, HK_POLY);
 }
 
