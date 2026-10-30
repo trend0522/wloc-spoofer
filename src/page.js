@@ -1427,6 +1427,7 @@ async function searchPlace() {
     // Worker route /api/search proxies Nominatim through the Cloudflare edge
     // cache (7d). Browser-direct Nominatim hits its rate limits and policy.
     const r = await fetch('/api/search?q=' + encodeURIComponent(q), { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error('search ' + r.status); // 502 = upstream failure, not "not found"
     const d = await r.json();
     const results = (d && d.results) || [];
     if (!results.length) { toast(t('not_found', q), 3000); return; }
