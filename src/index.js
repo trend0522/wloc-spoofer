@@ -78,6 +78,7 @@ app.get("/api/search", async (c) => {
   let raw;
   try {
     const resp = await fetch(api, {
+      signal: AbortSignal.timeout(8000),
       headers: {
         // Nominatim's usage policy requires a caller-identifying UA; requests without one get refused.
         "User-Agent": "wloc-ios-place-search/1.0",
